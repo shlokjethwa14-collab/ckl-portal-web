@@ -893,8 +893,8 @@ nav.tabs{position:static; top:auto}
     <div id="notWired"></div>
     <div class="demo">
       <p class="tiny muted" style="margin:0">
-        Trouble signing in? Call the CKL office. Your one-time code goes to the
-        mobile number registered with us.</p>
+        Tap a sample login above to try the portal. This preview keeps its data
+        on this device.</p>
     </div>
   </div>
 </section>
@@ -1171,17 +1171,25 @@ function seed(){
       photoIds:[], active:true }
   ];
 
-  // No customers, no credentials, no admin PIN. Accounts are created by the
-  // office against the server; nothing signs in from data held in this file.
+  // Standalone (offline) demo accounts. These are ONLY used when API_URL is
+  // empty; the instant a server is connected, bootstrap() replaces this whole
+  // DB and none of these credentials are ever consulted for login.
   return {
     v:1,
     settings:{ company:'Cotts Knits Loungewear', short:'CKL', currency:'INR',
-               gstNote:'Rates are net, per piece, ex-mill.' },
-    wholesalers: [],
+               gstNote:'Rates are net, per piece, ex-mill.', adminPin:'9999' },
+    wholesalers: [
+      {id:'w_01', code:'W01', pin:'1111', name:'Shree Balaji Hosiery', city:'Ludhiana',
+       phone:'919811100011', discount:5, active:true},
+      {id:'w_02', code:'W02', pin:'2222', name:'Nova Traders', city:'Surat',
+       phone:'919822200022', discount:8, active:true},
+      {id:'w_03', code:'W03', pin:'3333', name:'Kanchan Textiles', city:'Kolkata',
+       phone:'919833300033', discount:3, active:true}
+    ],
     boxTypes: bt,
     articles: arts,
     orders: [],
-    seq: 0
+    seq: 1000
   };
 }
 
@@ -1351,6 +1359,31 @@ class ApiError extends Error {
    Server — fills the DB cache from the authoritative Sheet, and keeps it fresh.
    ========================================================================== */
 const LIVE = !!API_URL;
+/* Standalone = no server configured. The app runs fully in this browser using
+   the seeded demo data. It is convenient and real to use, but data lives only
+   on THIS device — it is not shared between phones or with the office. The
+   moment API_URL is set, every login, price and stock decision moves to the
+   server and this path is never taken. */
+const STANDALONE = !API_URL;
+
+/* Local sign-in for standalone mode. Mirrors what the server would return. */
+const Local = {
+  login(code, pin, mode){
+    code = String(code||'').trim().toUpperCase();
+    pin  = String(pin||'').trim();
+    if(mode === 'a'){
+      if(code !== 'ADMIN' || pin !== String(DB.settings.adminPin||'')){
+        throw new Error('Code or PIN not recognised.');
+      }
+      SESSION = {role:'admin'};
+      return;
+    }
+    const w = DB.wholesalers.find(x => String(x.code).toUpperCase() === code);
+    if(!w || String(w.pin) !== pin) throw new Error('Code or PIN not recognised.');
+    if(w.active === false) throw new Error('This account is on hold. Call the office.');
+    SESSION = {role:'wholesaler', partyId:w.id};
+  }
+};
 
 const Server = {
   polling: null,
@@ -1551,6 +1584,18 @@ const Auth = {
 
     err.textContent = '';
     Auth.busy(btn, true, 'Checking…');
+
+    // standalone: verify against local demo data and go straight in
+    if(STANDALONE){
+      try{
+        Local.login(code, pin, loginMode);
+        sessionStorage.setItem('ckl_session', JSON.stringify(SESSION));
+        await Auth.enter();
+      }catch(e){ err.textContent = e.message; }
+      finally{ Auth.busy(btn, false, loginMode === 'w' ? 'Continue' : 'Sign in'); }
+      return;
+    }
+
     try{
       const d = await API.call('login', {
         code, pin, mode: loginMode === 'a' ? 'staff' : 'party'
@@ -1623,8 +1668,28 @@ const Auth = {
       $('#lotp').select();
     }finally{ Auth.busy(btn, false, 'Verify & sign in'); }
   },
-  /** Only reached with a server-issued token. The server decides the role. */
   async enter(){
+    // standalone: DB is already loaded from this browser; render from it
+    if(STANDALONE){
+      if(!DB) Store.load();
+      $('#login').style.display = 'none';
+      $('#app').classList.add('on');
+      Cart.clear(true);
+      if(SESSION.role === 'admin'){
+        $('#roleLbl').textContent = 'Office Desk';
+        $('#whoName').textContent = 'Office / Admin';
+        $('#whoSub').textContent  = DB.settings.company || 'CKL';
+      } else {
+        const w = party(SESSION.partyId);
+        $('#roleLbl').textContent = 'Wholesale Portal';
+        $('#whoName').textContent = w.name;
+        $('#whoSub').textContent  = [w.code, w.city, (num(w.discount)||0) + '% off']
+                                      .filter(Boolean).join(' · ');
+      }
+      Nav.build();
+      return;
+    }
+
     toast('Loading…');
     const d = await Server.bootstrap();      // throws if the token is not good
     await Server.loadOrders();
@@ -1651,9 +1716,11 @@ const Auth = {
 
   async logout(){
     Server.stopPolling();
-    try{ await API.call('logout'); }catch(e){ /* local sign-out proceeds regardless */ }
+    if(!STANDALONE){ try{ await API.call('logout'); }catch(e){ /* proceeds regardless */ } }
     API.setToken(null);
-    SESSION = null; DB = null;
+    sessionStorage.removeItem('ckl_session');
+    SESSION = null;
+    if(!STANDALONE) DB = null;                 // standalone keeps its local data
     Cart.clear(true);
     $('#app').classList.remove('on');
     $('#login').style.display = '';
@@ -1887,6 +1954,7 @@ const Cart = {
    */
   submitting:false,
   async place(){
+    if(STANDALONE) return Cart.placeLocal();          // fully-local order path
     const t = Cart.totals();
     if(!t.pcs){ toast('Nothing in the draft yet', true); return; }
     if(Cart.submitting) return;                       // double-click guard
@@ -4310,21 +4378,18 @@ Theme.set(Theme.get());          // sync the toggle labels with the pre-paint th
 applyLogo();                     // uploaded logo if one is stored, vector otherwise
 installPadHandlers();            // delegated once, never per render
 
-/* Without a server there is no safe way to run: every credential check, price
-   and stock decision lives there. Say so plainly rather than falling back to
-   something that looks like it works. */
-if(!API_URL){
+if(STANDALONE){
+  // Standalone: load this browser's data and let people sign in with the
+  // sample logins below. Data stays on this device (see the note on screen).
+  Store.load();
   const box = $('#notWired');
   if(box) box.innerHTML =
-    `<div class="warnbox" style="margin:16px 0 0">
-       <b>Not connected to the office system yet.</b><br>
-       Set <span class="mono">API_URL</span> at the top of this file to the deployed
-       Apps Script web-app URL. Until then sign-in is disabled — there is no
-       offline mode, by design.
+    `<div class="demo-grid" style="margin:16px 0 4px">
+       <button type="button" onclick="Auth.mode('w');Auth.quick('W01','1111')">Wholesaler · W01</button>
+       <button type="button" onclick="Auth.mode('w');Auth.quick('W02','2222')">Wholesaler · W02</button>
+       <button type="button" onclick="Auth.mode('w');Auth.quick('W03','3333')">Wholesaler · W03</button>
+       <button type="button" onclick="Auth.mode('a');Auth.quick('ADMIN','9999')">Office · ADMIN</button>
      </div>`;
-  ['#signinBtn','#lcode','#lpin','#tabW','#tabA'].forEach(s=>{
-    const el = $(s); if(el) el.disabled = true;
-  });
 }
 (function boot(){
   try{
