@@ -661,6 +661,114 @@ nav.tabs{position:static; top:auto}
   100%{transform:translateY(0) scale(1)}}
 
 /* ============================================================================
+   THEME — Dark. Same neumorphic shapes as the light theme, with the depth
+   inverted: the shade side deepens, the light side becomes a faint sheen.
+   Every colour is a token override, so no component rule is duplicated.
+   ========================================================================== */
+[data-theme="dark"]{
+  --ink:#e7e9f0; --ink-2:#c7cbd8; --muted:#9aa1b4; --faint:#767e93;
+  --line:rgba(150,160,190,.16); --line-2:rgba(150,160,190,.10);
+  --red:#ff4d63; --red-ink:#ff8496; --red-wash:rgba(255,77,99,.14); --red-line:rgba(255,77,99,.38);
+  --nbg:#1e2027;
+  --nd:rgba(0,0,0,.62);            /* shade side */
+  --nl:rgba(255,255,255,.045);     /* light side */
+  --glass:rgba(38,41,50,.72); --glass-2:rgba(38,41,50,.5); --glass-3:rgba(38,41,50,.85);
+  --glass-line:rgba(150,160,190,.14);
+  color-scheme: dark;
+}
+[data-theme="dark"] body{background:var(--nbg); color:var(--ink)}
+[data-theme="dark"] .field{background:var(--nbg)}
+[data-theme="dark"] .field::before{
+  background:radial-gradient(circle at 40% 40%, rgba(255,77,99,.10), transparent 70%)}
+[data-theme="dark"] .field::after{
+  background:radial-gradient(circle at 60% 40%, rgba(90,120,190,.12), transparent 70%)}
+[data-theme="dark"] .field i{display:none}
+
+/* panels + controls: reuse every neumorphic rule, just with dark tokens */
+[data-theme="dark"] .glass,[data-theme="dark"] .topbar,[data-theme="dark"] nav.tabs,
+[data-theme="dark"] .stickytop,[data-theme="dark"] #toast,[data-theme="dark"] .btn,
+[data-theme="dark"] .scrim{-webkit-backdrop-filter:none; backdrop-filter:none}
+[data-theme="dark"] .glass{background:var(--nbg); border:0; box-shadow:var(--up)}
+[data-theme="dark"] .glass::after{display:none}
+[data-theme="dark"] .card:hover{box-shadow:var(--up-lg)}
+[data-theme="dark"] .login-card{box-shadow:var(--up-lg)}
+[data-theme="dark"] .sheen>.sheen-l{
+  background:linear-gradient(104deg,transparent 40%,rgba(255,255,255,.06) 50%,transparent 60%)}
+
+[data-theme="dark"] .btn{background:var(--nbg); border:0; box-shadow:var(--up-sm); color:var(--ink)}
+[data-theme="dark"] .btn:hover{background:#23262e; box-shadow:var(--up); transform:translateY(-1px)}
+[data-theme="dark"] .btn:active{box-shadow:var(--in-sm); transform:translateY(0) scale(.99)}
+[data-theme="dark"] .btn:disabled{box-shadow:var(--in-sm); opacity:.45; transform:none}
+[data-theme="dark"] .btn.primary{background:#eef0f6; color:#1a1c22;
+  box-shadow:4px 4px 10px rgba(0,0,0,.55), -4px -4px 10px var(--nl)}
+[data-theme="dark"] .btn.primary:hover{background:#fff}
+[data-theme="dark"] .btn.accent{background:var(--red); color:#fff;
+  box-shadow:4px 4px 10px rgba(0,0,0,.5), -4px -4px 10px var(--nl)}
+[data-theme="dark"] .btn.accent:hover{background:#ff6377}
+[data-theme="dark"] .btn.ghost{background:transparent; box-shadow:none; color:var(--muted)}
+[data-theme="dark"] .btn.ghost:hover{background:#23262e; box-shadow:var(--up-xs); color:var(--ink)}
+[data-theme="dark"] .btn.danger{color:var(--red-ink)}
+[data-theme="dark"] .x{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--muted)}
+
+[data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{
+  background:#1b1d23; border:0; box-shadow:var(--in-sm); color:var(--ink)}
+[data-theme="dark"] input::placeholder,[data-theme="dark"] textarea::placeholder{color:var(--faint)}
+[data-theme="dark"] input:focus,[data-theme="dark"] select:focus,[data-theme="dark"] textarea:focus{
+  background:#1b1d23; box-shadow:var(--in-sm), 0 0 0 2px var(--red-line)}
+[data-theme="dark"] .cell input:disabled{box-shadow:none; background:rgba(150,160,190,.06); color:var(--faint)}
+[data-theme="dark"] .cell input.has{box-shadow:var(--in-sm), 0 0 0 2px var(--red-line); color:var(--red-ink)}
+[data-theme="dark"] .photo-drop{background:#1b1d23; border:0; box-shadow:var(--in)}
+
+[data-theme="dark"] .chip{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--muted)}
+[data-theme="dark"] .chip.ink{background:#eef0f6; color:#1a1c22}
+[data-theme="dark"] .chip.red{color:var(--red-ink)}
+[data-theme="dark"] .chip.ok{color:#4ad991}
+[data-theme="dark"] .chip.warn{color:#e3b341}
+[data-theme="dark"] .pick{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--ink)}
+[data-theme="dark"] .pick.on{box-shadow:var(--in-sm); color:var(--red-ink)}
+[data-theme="dark"] .shade{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--ink)}
+[data-theme="dark"] .shade[aria-selected=true]{box-shadow:var(--in-sm); color:var(--red-ink)}
+[data-theme="dark"] .seg,[data-theme="dark"] .modes{background:#1b1d23; box-shadow:var(--in-sm)}
+[data-theme="dark"] .seg button[aria-selected=true],
+[data-theme="dark"] .modes button[aria-selected=true]{background:var(--nbg); box-shadow:var(--up-xs); color:var(--ink)}
+[data-theme="dark"] .demo-grid button{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--ink-2)}
+[data-theme="dark"] .demo-grid button:hover{box-shadow:var(--up-sm); color:var(--red-ink)}
+[data-theme="dark"] .mark .m-badge{box-shadow:var(--up-sm)}
+
+[data-theme="dark"] .stickytop{background:var(--nbg); box-shadow:0 3px 16px rgba(0,0,0,.5)}
+[data-theme="dark"] .topbar,[data-theme="dark"] nav.tabs{background:transparent; border-bottom:0}
+[data-theme="dark"] nav.tabs button:hover{background:#23262e; box-shadow:var(--up-xs)}
+[data-theme="dark"] nav.tabs button[aria-selected=true]{background:var(--nbg); box-shadow:var(--in-sm)}
+
+[data-theme="dark"] table.data th{background:var(--nbg); border-bottom:0;
+  box-shadow:inset 0 -1px 0 var(--line)}
+[data-theme="dark"] table.data td{border-bottom:1px solid var(--line-2)}
+[data-theme="dark"] table.data tbody tr:hover{background:rgba(255,255,255,.035)}
+
+[data-theme="dark"] .scrim{background:rgba(8,9,12,.66)}
+[data-theme="dark"] .modal{background:var(--nbg); border:0; box-shadow:var(--up-lg)}
+[data-theme="dark"] .mhead{border-bottom:1px solid var(--line-2)}
+[data-theme="dark"] .mfoot{border-top:1px solid var(--line-2)}
+[data-theme="dark"] #cartbar{background:var(--nbg); border:0; box-shadow:var(--up-lg)}
+[data-theme="dark"] #toast{background:#eef0f6; color:#1a1c22}
+[data-theme="dark"] #toast.bad{background:var(--red); color:#fff}
+[data-theme="dark"] .mix{background:#1b1d23; box-shadow:var(--in-sm)}
+[data-theme="dark"] .warnbox{background:#1b1d23; border:0; box-shadow:var(--in-sm); color:var(--red-ink)}
+[data-theme="dark"] .okbox{background:#1b1d23; border:0; box-shadow:var(--in-sm); color:#4ad991}
+[data-theme="dark"] .ph,[data-theme="dark"] .tph,[data-theme="dark"] .sheet-hero{
+  background:linear-gradient(155deg,#2a2d36,#1f222a)}
+[data-theme="dark"] .ph .soldout{background:rgba(20,22,28,.7)}
+[data-theme="dark"] .ph .soldout span{background:rgba(30,32,39,.92)}
+[data-theme="dark"] .st.New{background:rgba(255,77,99,.16); color:#ff8496}
+[data-theme="dark"] .st.Confirmed{background:rgba(80,140,255,.16); color:#83b0ff}
+[data-theme="dark"] .st.InProduction{background:rgba(227,179,65,.16); color:#e3b341}
+[data-theme="dark"] .st.Dispatched{background:rgba(74,217,145,.16); color:#4ad991}
+[data-theme="dark"] .st.Cancelled{background:rgba(150,160,190,.14); color:var(--muted)}
+[data-theme="dark"] .moqbar{background:rgba(150,160,190,.18)}
+[data-theme="dark"] .sw i,[data-theme="dark"] .shade i{
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.5), 0 0 0 1.5px rgba(255,255,255,.14)}
+
+/* ============================================================================
    PHONE CATALOGUE — photo-led tiles + a full-height ordering sheet.
    A laptop keeps the inline colour x size grid, which is the right tool with a
    mouse. On a phone that grid was 30 inputs at 52x29px inside a sideways
@@ -832,7 +940,8 @@ nav.tabs{position:static; top:auto}
 /* theme is applied before first paint so the app never flashes the wrong skin */
 (function(){ var t='neu';
   try{ t = localStorage.getItem('ckl_theme') || 'neu'; }catch(e){}
-  document.documentElement.setAttribute('data-theme', t==='glass'?'glass':'neu');
+  if(t !== 'dark') t = 'neu';                       // 'glass' is retired
+  document.documentElement.setAttribute('data-theme', t);
 })();
 </script>
 
@@ -851,51 +960,22 @@ nav.tabs{position:static; top:auto}
       </div>
     </div>
 
-    <div class="seg" role="tablist">
-      <button role="tab" id="tabW" aria-selected="true" onclick="Auth.mode('w')">Wholesaler</button>
-      <button role="tab" id="tabA" aria-selected="false" onclick="Auth.mode('a')">Office desk</button>
-    </div>
-
+    <!-- One form for everyone. The login ID decides the role, so there is no
+         Wholesaler / Office switch to get wrong. -->
     <form id="stepCreds" onsubmit="event.preventDefault();Auth.submit()">
-      <label class="fl"><span id="codeLbl">Party code</span>
-        <input id="lcode" autocomplete="off" autocapitalize="characters" spellcheck="false"
-               placeholder="W01" style="text-transform:uppercase"></label>
+      <label class="fl"><span>Login ID</span>
+        <input id="lcode" autocomplete="username" autocapitalize="characters" spellcheck="false"
+               placeholder="W01 or ADMIN" style="text-transform:uppercase"></label>
       <label class="fl"><span>PIN</span>
-        <div class="pin-row"><input id="lpin" type="password" inputmode="numeric" maxlength="6"
-               autocomplete="off" placeholder="••••"></div></label>
+        <div class="pin-row"><input id="lpin" type="password" inputmode="numeric" maxlength="8"
+               autocomplete="current-password" placeholder="••••"></div></label>
       <div class="err" id="lerr"></div>
       <button class="btn primary" id="signinBtn"
               style="width:100%; justify-content:center; padding:11px" type="submit">
-        <span id="signinLbl">Continue</span></button>
-    </form>
-
-    <!-- second factor: wholesalers only -->
-    <form id="stepOtp" style="display:none" onsubmit="event.preventDefault();Auth.verifyOtp()">
-      <button type="button" class="btn xs ghost" style="margin-bottom:14px" onclick="Auth.backToCreds()">
-        ← Back</button>
-      <div style="margin-bottom:16px">
-        <div class="eyebrow">Verify it's you</div>
-        <p style="margin:6px 0 0; font-size:12.5px; color:var(--muted)">
-          A 6-digit code was sent to <b id="otpDest">your registered number</b>.</p>
-      </div>
-      <label class="fl"><span>One-time code</span>
-        <div class="pin-row"><input id="lotp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
-               placeholder="••••••" style="letter-spacing:.42em"></div></label>
-      <div class="err" id="oerr"></div>
-      <button class="btn primary" id="otpBtn"
-              style="width:100%; justify-content:center; padding:11px" type="submit">
-        <span>Verify &amp; sign in</span></button>
-      <button type="button" class="btn ghost" id="otpResend"
-              style="width:100%; justify-content:center; margin-top:8px" onclick="Auth.sendOtp(true)">
-        Resend code</button>
+        <span id="signinLbl">Sign in</span></button>
     </form>
 
     <div id="notWired"></div>
-    <div class="demo">
-      <p class="tiny muted" style="margin:0">
-        Tap a sample login above to try the portal. This preview keeps its data
-        on this device.</p>
-    </div>
   </div>
 </section>
 
@@ -940,6 +1020,11 @@ nav.tabs{position:static; top:auto}
    Empty string = fully offline (localStorage + IndexedDB only).
    ========================================================================== */
 const API_URL = '';
+
+/* Office login. Change this, then sign in with ID: ADMIN and the new PIN.
+   (An existing browser keeps its saved PIN until you use Office -> Backup ->
+   "Reset to demo", or change it from the Wholesalers screen.) */
+const ADMIN_PIN = '9999';
 
 const LS_KEY  = 'ckl_portal_v1';
 const IDB_NAME = 'ckl_media';
@@ -1171,20 +1256,15 @@ function seed(){
       photoIds:[], active:true }
   ];
 
-  // Standalone (offline) demo accounts. These are ONLY used when API_URL is
-  // empty; the instant a server is connected, bootstrap() replaces this whole
-  // DB and none of these credentials are ever consulted for login.
+  // Starting accounts. Change these from Office -> Wholesalers (and ADMIN_PIN
+  // at the top of this file) before handing the portal to real customers.
   return {
     v:1,
     settings:{ company:'Cotts Knits Loungewear', short:'CKL', currency:'INR',
-               gstNote:'Rates are net, per piece, ex-mill.', adminPin:'9999' },
+               gstNote:'Rates are net, per piece, ex-mill.', adminPin:ADMIN_PIN },
     wholesalers: [
       {id:'w_01', code:'W01', pin:'1111', name:'Shree Balaji Hosiery', city:'Ludhiana',
-       phone:'919811100011', discount:5, active:true},
-      {id:'w_02', code:'W02', pin:'2222', name:'Nova Traders', city:'Surat',
-       phone:'919822200022', discount:8, active:true},
-      {id:'w_03', code:'W03', pin:'3333', name:'Kanchan Textiles', city:'Kolkata',
-       phone:'919833300033', discount:3, active:true}
+       phone:'919811100011', discount:5, active:true}
     ],
     boxTypes: bt,
     articles: arts,
@@ -1366,20 +1446,21 @@ const LIVE = !!API_URL;
    server and this path is never taken. */
 const STANDALONE = !API_URL;
 
-/* Local sign-in for standalone mode. Mirrors what the server would return. */
+/* Sign-in. One field pair for everyone: the login ID decides the role, so the
+   office and a wholesaler use the same form. */
 const Local = {
-  login(code, pin, mode){
+  login(code, pin){
     code = String(code||'').trim().toUpperCase();
     pin  = String(pin||'').trim();
-    if(mode === 'a'){
-      if(code !== 'ADMIN' || pin !== String(DB.settings.adminPin||'')){
-        throw new Error('Code or PIN not recognised.');
-      }
+    if(!code || !pin) throw new Error('Enter your login ID and PIN.');
+
+    if(code === 'ADMIN'){
+      if(pin !== String(DB.settings.adminPin || ADMIN_PIN)) throw new Error('Login ID or PIN not recognised.');
       SESSION = {role:'admin'};
       return;
     }
     const w = DB.wholesalers.find(x => String(x.code).toUpperCase() === code);
-    if(!w || String(w.pin) !== pin) throw new Error('Code or PIN not recognised.');
+    if(!w || String(w.pin) !== pin) throw new Error('Login ID or PIN not recognised.');
     if(w.active === false) throw new Error('This account is on hold. Call the office.');
     SESSION = {role:'wholesaler', partyId:w.id};
   }
@@ -1511,112 +1592,36 @@ const Sync = {
    Session / Auth
    ========================================================================== */
 let SESSION = null;           // {role:'wholesaler'|'admin', partyId?}
-let loginMode = 'w';
 
-/* ============================================================================
-   One-time codes (wholesalers only)
-
-   With API_URL set, the code is generated, stored and checked on the server and
-   never reaches the browser — that is the real thing.
-
-   Offline there is no server and no way to send an SMS, so the code is made in
-   the browser and printed on screen. That is a DEMO ONLY: anyone looking at the
-   screen can read it, so it proves nothing about who is signing in. Do not put
-   the offline build in front of real customers as security.
-   ========================================================================== */
-const OTP_TTL_MS   = 5*60*1000;   // a code is good for five minutes
-const OTP_MAX_TRY  = 5;
-const OTP_COOLDOWN = 30;          // seconds before "Resend" works again
-
-const OTP = {
-  challenge:null, sentAt:0, timer:null,
-
-  maskPhone(p){
-    const s = String(p||'').replace(/\D/g,'');
-    if(s.length < 4) return 'your registered number';
-    return '•••••• ' + s.slice(-4);
-  },
-
-  /* The code is generated, hashed, sent and verified on the server. It is never
-     present in this browser — there is nothing here to read or bypass. */
-
-  cooldownLeft(){ return Math.max(0, OTP_COOLDOWN - Math.floor((Date.now()-OTP.sentAt)/1000)); },
-  startCooldown(){
-    OTP.sentAt = Date.now();
-    clearInterval(OTP.timer);
-    const btn = $('#otpResend');
-    const tick = () => {
-      const s = OTP.cooldownLeft();
-      if(!btn) return;
-      btn.disabled = s > 0;
-      btn.textContent = s > 0 ? `Resend code in ${s}s` : 'Resend code';
-      if(s <= 0) clearInterval(OTP.timer);
-    };
-    tick(); OTP.timer = setInterval(tick, 1000);
-  },
-  reset(){
-    clearInterval(OTP.timer);
-    OTP.challenge = null; OTP.sentAt = 0;
-  }
-};
 
 const Auth = {
-  mode(m){
-    loginMode = m;
-    $('#tabW').setAttribute('aria-selected', m==='w');
-    $('#tabA').setAttribute('aria-selected', m==='a');
-    $('#codeLbl').textContent = m==='w' ? 'Party code' : 'Desk code';
-    $('#lcode').placeholder  = m==='w' ? 'W01' : 'ADMIN';
-    // the office desk signs in with code + PIN only; wholesalers get a code sent
-    $('#signinLbl').textContent = m==='w' ? 'Continue' : 'Sign in';
-    $('#lerr').textContent = ''; $('#lcode').focus();
-  },
   quick(c,p){ $('#lcode').value=c; $('#lpin').value=p; Auth.submit(); },
 
-  /* Step 1 — code + PIN, verified by the server. Nothing about the credential
-     is checked here; the browser holds no customer list and no PIN. */
+  /* One form, one step. The login ID decides whether this is the office or a
+     wholesaler, so nobody has to pick the right tab first. */
   async submit(){
     const code = ($('#lcode').value||'').trim().toUpperCase();
     const pin  = ($('#lpin').value||'').trim();
     const err  = $('#lerr');
     const btn  = $('#signinBtn');
-    if(!code || !pin){ err.textContent = 'Enter code and PIN.'; return; }
+    if(!code || !pin){ err.textContent = 'Enter your login ID and PIN.'; return; }
 
     err.textContent = '';
-    Auth.busy(btn, true, 'Checking…');
-
-    // standalone: verify against local demo data and go straight in
-    if(STANDALONE){
-      try{
-        Local.login(code, pin, loginMode);
-        sessionStorage.setItem('ckl_session', JSON.stringify(SESSION));
-        await Auth.enter();
-      }catch(e){ err.textContent = e.message; }
-      finally{ Auth.busy(btn, false, loginMode === 'w' ? 'Continue' : 'Sign in'); }
-      return;
-    }
-
+    Auth.busy(btn, true, 'Signing in…');
     try{
-      const d = await API.call('login', {
-        code, pin, mode: loginMode === 'a' ? 'staff' : 'party'
-      });
-
-      if(d.stage === 'DONE'){            // office desk: straight in
+      if(STANDALONE){
+        Local.login(code, pin);
+        sessionStorage.setItem('ckl_session', JSON.stringify(SESSION));
+      } else {
+        const d = await API.call('login', {code, pin, mode: code === 'ADMIN' ? 'staff' : 'party'});
         API.setToken(d.session.token);
-        await Auth.enter();
-        return;
       }
-      // wholesaler: a code has gone to their registered number
-      OTP.challenge = d.challenge;
-      $('#stepCreds').style.display = 'none';
-      $('#stepOtp').style.display = '';
-      $('#otpDest').textContent = d.sentTo || 'your registered number';
-      OTP.startCooldown();
-      $('#lotp').focus();
+      await Auth.enter();
     }catch(e){
       err.textContent = e.message;
+      $('#lpin').value = ''; $('#lpin').focus();
     }finally{
-      Auth.busy(btn, false, loginMode === 'w' ? 'Continue' : 'Sign in');
+      Auth.busy(btn, false, 'Sign in');
     }
   },
 
@@ -1625,48 +1630,6 @@ const Auth = {
     btn.disabled = !!on;
     const span = btn.querySelector('span');
     if(span) span.textContent = label;
-  },
-
-  backToCreds(){
-    OTP.reset();
-    $('#stepOtp').style.display = 'none';
-    $('#stepCreds').style.display = '';
-    $('#lpin').value = ''; $('#lotp').value = '';
-    $('#oerr').textContent = '';
-    $('#lcode').focus();
-  },
-
-  async sendOtp(isResend){
-    if(!OTP.challenge) return;
-    if(isResend && OTP.cooldownLeft() > 0) return;
-    $('#oerr').textContent = '';
-    try{
-      const d = await API.call('resendOtp', {challenge: OTP.challenge});
-      OTP.challenge = d.challenge;
-      OTP.startCooldown();
-      if(isResend) toast('New code sent');
-    }catch(e){ $('#oerr').textContent = e.message; }
-  },
-
-  async verifyOtp(){
-    const err = $('#oerr');
-    const entered = ($('#lotp').value||'').trim();
-    if(entered.length < 4){ err.textContent = 'Enter the 6-digit code.'; return; }
-    err.textContent = '';
-    const btn = $('#otpBtn');
-    Auth.busy(btn, true, 'Verifying…');
-    try{
-      const d = await API.call('verifyOtp', {challenge: OTP.challenge, otp: entered});
-      API.setToken(d.session.token);
-      OTP.reset();
-      $('#stepOtp').style.display = 'none';
-      $('#stepCreds').style.display = '';
-      $('#lotp').value = '';
-      await Auth.enter();
-    }catch(e){
-      err.textContent = e.message;
-      $('#lotp').select();
-    }finally{ Auth.busy(btn, false, 'Verify & sign in'); }
   },
   async enter(){
     // standalone: DB is already loaded from this browser; render from it
@@ -1724,12 +1687,8 @@ const Auth = {
     Cart.clear(true);
     $('#app').classList.remove('on');
     $('#login').style.display = '';
-    OTP.reset();
-    $('#stepOtp').style.display = 'none';
-    $('#stepCreds').style.display = '';
-    $('#lotp').value=''; $('#oerr').textContent='';
-    Auth.mode('w');
     $('#lcode').value=''; $('#lpin').value=''; $('#lerr').textContent='';
+    $('#lcode').focus();
   }
 };
 
@@ -4323,17 +4282,20 @@ const Brand = {
   }
 };
 
+/* Light (soft neumorphic) or Dark. Same shapes, inverted depth. */
 const Theme = {
-  get(){ return document.documentElement.getAttribute('data-theme') === 'glass' ? 'glass' : 'neu'; },
+  get(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'neu'; },
   set(t){
-    t = (t === 'glass') ? 'glass' : 'neu';
+    t = (t === 'dark') ? 'dark' : 'neu';
     document.documentElement.setAttribute('data-theme', t);
     try{ localStorage.setItem('ckl_theme', t); }catch(e){}
-    // the label names the theme you'd switch *to*
-    const label = t === 'neu' ? 'Glass' : 'Soft';
+    const meta = document.querySelector('meta[name=theme-color]');
+    if(meta) meta.setAttribute('content', t === 'dark' ? '#1e2027' : '#e9ebf1');
+    // the label names the mode you would switch TO
+    const label = t === 'neu' ? 'Dark' : 'Light';
     ['themeBtn','loginTheme'].forEach(id=>{ const b = $('#'+id); if(b) b.textContent = label; });
   },
-  toggle(){ Theme.set(Theme.get()==='neu' ? 'glass' : 'neu'); }
+  toggle(){ Theme.set(Theme.get()==='neu' ? 'dark' : 'neu'); }
 };
 
 /* ============================================================================
@@ -4385,10 +4347,8 @@ if(STANDALONE){
   const box = $('#notWired');
   if(box) box.innerHTML =
     `<div class="demo-grid" style="margin:16px 0 4px">
-       <button type="button" onclick="Auth.mode('w');Auth.quick('W01','1111')">Wholesaler · W01</button>
-       <button type="button" onclick="Auth.mode('w');Auth.quick('W02','2222')">Wholesaler · W02</button>
-       <button type="button" onclick="Auth.mode('w');Auth.quick('W03','3333')">Wholesaler · W03</button>
-       <button type="button" onclick="Auth.mode('a');Auth.quick('ADMIN','9999')">Office · ADMIN</button>
+       <button type="button" onclick="Auth.quick('W01','1111')">Wholesaler &middot; W01</button>
+       <button type="button" onclick="Auth.quick('ADMIN','${ADMIN_PIN}')">Office &middot; ADMIN</button>
      </div>`;
 }
 (function boot(){
