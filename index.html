@@ -965,7 +965,7 @@ nav.tabs{position:static; top:auto}
     <form id="stepCreds" onsubmit="event.preventDefault();Auth.submit()">
       <label class="fl"><span>Login ID</span>
         <input id="lcode" autocomplete="username" autocapitalize="characters" spellcheck="false"
-               placeholder="W01 or ADMIN" style="text-transform:uppercase"></label>
+               placeholder="Your login ID" style="text-transform:uppercase"></label>
       <label class="fl"><span>PIN</span>
         <div class="pin-row"><input id="lpin" type="password" inputmode="numeric" maxlength="8"
                autocomplete="current-password" placeholder="••••"></div></label>
@@ -974,8 +974,6 @@ nav.tabs{position:static; top:auto}
               style="width:100%; justify-content:center; padding:11px" type="submit">
         <span id="signinLbl">Sign in</span></button>
     </form>
-
-    <div id="notWired"></div>
   </div>
 </section>
 
@@ -4341,15 +4339,9 @@ applyLogo();                     // uploaded logo if one is stored, vector other
 installPadHandlers();            // delegated once, never per render
 
 if(STANDALONE){
-  // Standalone: load this browser's data and let people sign in with the
-  // sample logins below. Data stays on this device (see the note on screen).
+  // Load this browser's data. Credentials are never shown on screen — they are
+  // typed by the person signing in.
   Store.load();
-  const box = $('#notWired');
-  if(box) box.innerHTML =
-    `<div class="demo-grid" style="margin:16px 0 4px">
-       <button type="button" onclick="Auth.quick('W01','1111')">Wholesaler &middot; W01</button>
-       <button type="button" onclick="Auth.quick('ADMIN','${ADMIN_PIN}')">Office &middot; ADMIN</button>
-     </div>`;
 }
 (function boot(){
   try{
