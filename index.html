@@ -1019,10 +1019,21 @@ nav.tabs{position:static; top:auto}
    ========================================================================== */
 const API_URL = '';
 
-/* Office login. Change this, then sign in with ID: ADMIN and the new PIN.
-   (An existing browser keeps its saved PIN until you use Office -> Backup ->
-   "Reset to demo", or change it from the Wholesalers screen.) */
-const ADMIN_PIN = '9999';
+/* ---------------------------------------------------------------------------
+   Central database (Supabase). With these set, every device shares one live
+   database: an order placed on a phone appears at the office immediately.
+   The publishable key is safe in a browser — Row Level Security in the
+   database, not this file, decides what each signed-in person may see.
+   Leave DB_URL empty to fall back to this-device-only storage.
+--------------------------------------------------------------------------- */
+const DB_URL = 'https://ngoptvlfohobfaqhfyyk.supabase.co';
+const DB_KEY = 'sb_publishable_NToD2G2JT7QZoP_ze_0RHA_mEGI12CO';
+
+/* Login IDs are mapped to sign-in addresses. Add a wholesaler here when you
+   create their account in the database. */
+const LOGIN_DOMAIN = '@cklonline.in';
+
+const ADMIN_PIN = '9999';   // only used by the offline fallback
 
 const LS_KEY  = 'ckl_portal_v1';
 const IDB_NAME = 'ckl_media';
@@ -1295,7 +1306,16 @@ const Store = {
    * must say so instead of appearing to save. Silence here would look exactly
    * like success and lose the edit.
    */
+  /**
+   * With a shared database this pushes the office's edits up. It mirrors the
+   * in-memory DB back to the tables that changed, so the existing screens keep
+   * working unmodified. Failures are surfaced, never swallowed.
+   */
   save(){
+    if(CLOUD){
+      Store._pushCloud();
+      return true;
+    }
     if(LIVE){
       console.warn('[store] blocked local write — this screen is not migrated yet');
       toast('Not saved — this screen is not connected to the office system yet.', true);
@@ -1304,7 +1324,25 @@ const Store = {
     try{ localStorage.setItem(LS_KEY, JSON.stringify(DB)); return true; }
     catch(e){ toast('Could not save locally — storage full?', true); return false; }
   },
-  reset(){ if(LIVE) return false; DB = seed(); return Store.save(); }
+
+  /* Debounced so a screen that calls save() repeatedly sends one round of
+     writes, not twenty. */
+  _pushCloud(){
+    clearTimeout(Store._t);
+    Store._t = setTimeout(async ()=>{
+      try{
+        const jobs = [];
+        (DB.articles||[]).forEach(a=>jobs.push(Cloud.saveArticle(a)));
+        (DB.wholesalers||[]).forEach(w=>{ if(w.id !== 'self') jobs.push(Cloud.saveParty(w)); });
+        (DB.boxTypes||[]).forEach(b=>jobs.push(Cloud.saveBoxType(b)));
+        (DB.orders||[]).forEach(o=>jobs.push(Cloud.saveOrder(o)));
+        await Promise.all(jobs);
+      }catch(e){
+        toast('Could not save to the database: ' + e.message, true);
+      }
+    }, 400);
+  },
+  reset(){ if(LIVE || CLOUD) return false; DB = seed(); return Store.save(); }
 };
 
 /* lookups */
@@ -1437,12 +1475,200 @@ class ApiError extends Error {
    Server — fills the DB cache from the authoritative Sheet, and keeps it fresh.
    ========================================================================== */
 const LIVE = !!API_URL;
-/* Standalone = no server configured. The app runs fully in this browser using
-   the seeded demo data. It is convenient and real to use, but data lives only
-   on THIS device — it is not shared between phones or with the office. The
-   moment API_URL is set, every login, price and stock decision moves to the
-   server and this path is never taken. */
-const STANDALONE = !API_URL;
+/* Standalone = no central database. Everything runs in this browser only.
+   With DB_URL set (the normal case now) the portal is shared: one database,
+   every device sees the same orders and stock. */
+const CLOUD = !!DB_URL;
+const STANDALONE = !API_URL && !CLOUD;
+
+/* ============================================================================
+   Supabase client — plain fetch, no library, so nothing extra to load.
+   ========================================================================== */
+const Cloud = {
+  token:null, refresh:null, role:null, partyId:null,
+
+  saveSession(s){
+    Cloud.token   = s && s.access_token || null;
+    Cloud.refresh = s && s.refresh_token || null;
+    try{
+      if(Cloud.token) localStorage.setItem('ckl_sb', JSON.stringify(
+        {t:Cloud.token, r:Cloud.refresh, at:Date.now()}));
+      else localStorage.removeItem('ckl_sb');
+    }catch(e){}
+  },
+  loadSession(){
+    try{
+      const s = JSON.parse(localStorage.getItem('ckl_sb')||'null');
+      if(s && s.t){ Cloud.token = s.t; Cloud.refresh = s.r; return true; }
+    }catch(e){}
+    return false;
+  },
+
+  /** Sign in with a login ID (W01 / ADMIN) + PIN. */
+  async signIn(code, pin){
+    const email = String(code).trim().toLowerCase() + LOGIN_DOMAIN;
+    const r = await fetch(DB_URL + '/auth/v1/token?grant_type=password', {
+      method:'POST',
+      headers:{'apikey':DB_KEY, 'Content-Type':'application/json'},
+      body: JSON.stringify({email, password:pin})
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || !j.access_token){
+      const raw = String(j.error_description || j.msg || j.error || '');
+      // the database's wording is for developers; say it plainly instead
+      throw new Error(/invalid login|credential/i.test(raw)
+        ? 'Login ID or PIN not recognised.'
+        : (raw || 'Could not sign in. Check your connection and try again.'));
+    }
+    Cloud.saveSession(j);
+    return j;
+  },
+
+  async signOut(){
+    try{
+      await fetch(DB_URL + '/auth/v1/logout', {method:'POST',
+        headers:{'apikey':DB_KEY, 'Authorization':'Bearer '+Cloud.token}});
+    }catch(e){}
+    Cloud.saveSession(null);
+    Cloud.role = null; Cloud.partyId = null;
+  },
+
+  /** Swap an expired access token for a fresh one. */
+  async renew(){
+    if(!Cloud.refresh) return false;
+    const r = await fetch(DB_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method:'POST', headers:{'apikey':DB_KEY,'Content-Type':'application/json'},
+      body: JSON.stringify({refresh_token: Cloud.refresh})
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || !j.access_token) return false;
+    Cloud.saveSession(j); return true;
+  },
+
+  /** One REST call against the database. Retries once after renewing a token. */
+  async rest(path, opts, _retried){
+    opts = opts || {};
+    const r = await fetch(DB_URL + '/rest/v1/' + path, {
+      method: opts.method || 'GET',
+      headers: Object.assign({
+        'apikey': DB_KEY,
+        'Authorization': 'Bearer ' + (Cloud.token || DB_KEY),
+        'Content-Type': 'application/json'
+      }, opts.headers || {}),
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    if(r.status === 401 && !_retried && await Cloud.renew()){
+      return Cloud.rest(path, opts, true);
+    }
+    const txt = await r.text();
+    let j = null; try{ j = txt ? JSON.parse(txt) : null; }catch(e){ j = txt; }
+    if(!r.ok){
+      const msg = (j && (j.message || j.hint || j.error)) || ('Request failed (' + r.status + ')');
+      throw new Error(Cloud.humanise(String(msg)));
+    }
+    return j;
+  },
+
+  /** Call a database function (used for placing orders atomically). */
+  rpc(fn, args){ return Cloud.rest('rpc/' + fn, {method:'POST', body: args || {}}); },
+
+  /** Turn a database error into something the office or a buyer can act on. */
+  humanise(m){
+    if(/INSUFFICIENT_STOCK/.test(m)){
+      const x = m.match(/INSUFFICIENT_STOCK:\s*(\S+)\s+(.+?)\s+(\S+)\s+\(only (\d+)\)/);
+      return x ? `${x[1]} ${x[2]} ${x[3]}: only ${x[4]} left. Nothing was ordered.`
+               : 'Not enough stock. Nothing was ordered.';
+    }
+    if(/MOQ_NOT_MET/.test(m)){
+      const x = m.match(/MOQ_NOT_MET:\s*(\S+) needs (\d+)/);
+      return x ? `${x[1]} needs at least ${x[2]} pcs.` : 'Minimum order quantity not met.';
+    }
+    if(/ARTICLE_NOT_PERMITTED/.test(m)) return 'That article is not available on your account.';
+    if(/ARTICLE_UNAVAILABLE/.test(m))   return 'That article is no longer available.';
+    if(/EMPTY_ORDER/.test(m))           return 'Nothing in the draft.';
+    if(/NOT_A_WHOLESALER/.test(m))      return 'This account cannot place orders.';
+    if(/ACCOUNT_INACTIVE/.test(m))      return 'This account is on hold. Call the office.';
+    if(/Failed to fetch|NetworkError/i.test(m)) return 'No internet connection. Nothing was sent.';
+    return m;
+  },
+
+  /* ---- shape translation: database rows <-> what the views already expect ---- */
+  toArticle(a){
+    return { id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
+      rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
+      orderMode:a.order_mode||'loose', boxTypeIds:a.box_type_ids||[],
+      visibility:a.visibility||'common', parties:a.parties||[],
+      stockMode:a.stock_mode||'booking', stock:a.stock||{},
+      photoIds:a.photo_ids||[], active:a.active !== false };
+  },
+  fromArticle(a){
+    return { id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
+      rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
+      order_mode:a.orderMode||'loose', box_type_ids:a.boxTypeIds||[],
+      visibility:a.visibility||'common', parties:a.parties||[],
+      stock_mode:a.stockMode||'booking', stock:a.stock||{},
+      photo_ids:a.photoIds||[], active:a.active !== false };
+  },
+  toParty(w){
+    return { id:w.id, code:w.code, name:w.name, city:w.city, phone:w.phone,
+      discount:num(w.discount), active:w.active !== false };
+  },
+  fromParty(w){
+    return { id:w.id, code:w.code, name:w.name, city:w.city, phone:w.phone,
+      discount:num(w.discount), active:w.active !== false };
+  },
+  toOrder(o){
+    return { id:o.id, partyId:o.party_id, partyCode:o.party_code, partyName:o.party_name,
+      date:o.created_at, status:o.status, discount:num(o.discount), note:o.note||'',
+      totalQty:num(o.total_qty), totalValue:num(o.total_value),
+      lines:(o.lines||[]).map(l=>({articleId:l.articleId, code:l.code, name:l.name,
+        colour:l.colour, size:l.size, qty:num(l.qty), rate:num(l.rate)})),
+      boxes:o.boxes||[] };
+  },
+
+  /** Load everything this account is allowed to see. */
+  async loadAll(){
+    const me = await Cloud.rest('app_users?select=role,wholesaler_id');
+    if(!me || !me.length) throw new Error('This account is not set up. Call the office.');
+    Cloud.role = me[0].role; Cloud.partyId = me[0].wholesaler_id;
+
+    const [arts, boxes, parties, orders, setts] = await Promise.all([
+      Cloud.rest('articles?select=*&order=code'),
+      Cloud.rest('box_types?select=*&active=eq.true'),
+      Cloud.rest('wholesalers?select=*&order=code'),
+      Cloud.rest('orders?select=*&order=created_at.desc'),
+      Cloud.rest('settings?select=*')
+    ]);
+
+    DB = DB || {};
+    DB.articles    = (arts||[]).map(Cloud.toArticle);
+    DB.boxTypes    = (boxes||[]).map(b=>({id:b.id,name:b.name,note:b.note,
+                       mix:(b.mix||[]).map(m=>({colour:m.colour, qty:num(m.qty)}))}));
+    DB.wholesalers = (parties||[]).map(Cloud.toParty);
+    DB.orders      = (orders||[]).map(Cloud.toOrder);
+    DB.settings    = {};
+    (setts||[]).forEach(s=>{ DB.settings[s.key] = s.value; });
+
+    SESSION = Cloud.role === 'ADMIN'
+      ? {role:'admin'}
+      : {role:'wholesaler', partyId:Cloud.partyId};
+    return DB;
+  },
+
+  /* ---- writes ---- */
+  saveArticle(a){ return Cloud.rest('articles', {method:'POST',
+    headers:{'Prefer':'resolution=merge-duplicates'}, body:[Cloud.fromArticle(a)]}); },
+  saveParty(w){ return Cloud.rest('wholesalers', {method:'POST',
+    headers:{'Prefer':'resolution=merge-duplicates'}, body:[Cloud.fromParty(w)]}); },
+  saveBoxType(b){ return Cloud.rest('box_types', {method:'POST',
+    headers:{'Prefer':'resolution=merge-duplicates'},
+    body:[{id:b.id,name:b.name,note:b.note,mix:b.mix,active:b.active!==false}]}); },
+  setOrderStatus(id, status){ return Cloud.rest('orders?id=eq.'+encodeURIComponent(id),
+    {method:'PATCH', body:{status}}); },
+  saveOrder(o){ return Cloud.rest('orders?id=eq.'+encodeURIComponent(o.id), {method:'PATCH',
+    body:{ status:o.status, note:o.note, total_qty:o.totalQty,
+           total_value:o.totalValue, lines:o.lines }}); }
+};
 
 /* Sign-in. One field pair for everyone: the login ID decides the role, so the
    office and a wholesaler use the same form. */
@@ -1607,7 +1833,9 @@ const Auth = {
     err.textContent = '';
     Auth.busy(btn, true, 'Signing in…');
     try{
-      if(STANDALONE){
+      if(CLOUD){
+        await Cloud.signIn(code, pin);          // verified by the database
+      } else if(STANDALONE){
         Local.login(code, pin);
         sessionStorage.setItem('ckl_session', JSON.stringify(SESSION));
       } else {
@@ -1630,6 +1858,36 @@ const Auth = {
     if(span) span.textContent = label;
   },
   async enter(){
+    // shared database: pull everything this account may see
+    if(CLOUD){
+      toast('Loading…');
+      await Cloud.loadAll();
+      $('#login').style.display = 'none';
+      $('#app').classList.add('on');
+      Cart.clear(true);
+      if(SESSION.role === 'admin'){
+        $('#roleLbl').textContent = 'Office Desk';
+        $('#whoName').textContent = 'Office / Admin';
+        $('#whoSub').textContent  = (DB.settings.company || 'CKL') + ' · shared database';
+      } else {
+        const w = party(SESSION.partyId) || {};
+        $('#roleLbl').textContent = 'Wholesale Portal';
+        $('#whoName').textContent = w.name || 'Wholesaler';
+        $('#whoSub').textContent  = [w.code, w.city, (num(w.discount)||0)+'% off']
+                                      .filter(Boolean).join(' · ');
+      }
+      Nav.build();
+      Cloud.poll = setInterval(async ()=>{
+        if(!SESSION || document.hidden || $('#scrim')) return;
+        try{
+          const o = await Cloud.rest('orders?select=*&order=created_at.desc');
+          DB.orders = (o||[]).map(Cloud.toOrder);
+          if(['orders','myorders','plan'].includes(Nav.cur)) Nav.refresh();
+        }catch(e){}
+      }, 20000);
+      toast('Signed in');
+      return;
+    }
     // standalone: DB is already loaded from this browser; render from it
     if(STANDALONE){
       if(!DB) Store.load();
@@ -1677,7 +1935,9 @@ const Auth = {
 
   async logout(){
     Server.stopPolling();
-    if(!STANDALONE){ try{ await API.call('logout'); }catch(e){ /* proceeds regardless */ } }
+    if(Cloud.poll){ clearInterval(Cloud.poll); Cloud.poll = null; }
+    if(CLOUD){ await Cloud.signOut(); DB = null; }
+    else if(!STANDALONE){ try{ await API.call('logout'); }catch(e){ /* proceeds regardless */ } }
     API.setToken(null);
     sessionStorage.removeItem('ckl_session');
     SESSION = null;
@@ -1910,7 +2170,54 @@ const Cart = {
    * by the server. Nothing is reported as placed until the server says so.
    */
   submitting:false,
+
+  /** Shared database: the server takes stock, prices the lines and numbers the
+      order in one transaction. Success is only reported once it has. */
+  async placeCloud(){
+    const t = Cart.totals();
+    if(!t.pcs){ toast('Nothing in the draft yet', true); return; }
+    if(Cart.submitting) return;
+
+    const lines = [], boxes = [];
+    for(const aid in Cart.data){
+      const e = Cart.data[aid];
+      Object.keys(e.lines).forEach(k=>{
+        const q = num(e.lines[k]); if(!q) return;
+        const [colour, size] = k.split('|');
+        lines.push({article_id:aid, colour, size, qty:q});
+      });
+      (e.boxes||[]).forEach(b=>boxes.push(
+        {article_id:aid, box_type_id:b.btId, size:b.size, n:num(b.n)}));
+    }
+    if(!lines.length){ toast('Nothing in the draft yet', true); return; }
+
+    Cart.submitting = true;
+    Cart.setPlacing(true, 'Submitting…');
+    try{
+      const res = await Cloud.rpc('place_order',
+        {p_lines:lines, p_boxes:boxes, p_note:Cart.note || ''});
+      Cart.data = {}; Cart.note = ''; Cart.paint();
+      // refresh from the database so stock and orders are what the server says
+      await Cloud.loadAll();
+      toast(`Order ${res.id} confirmed · ${res.totalQty} pcs`);
+      Nav.go('myorders');
+    }catch(e){
+      Modal.show({
+        title:'Order NOT submitted',
+        sub:'Your draft is safe and still here',
+        body:`<div class="warnbox" style="margin:0">${esc(e.message)}</div>
+              <p class="tiny muted" style="margin:12px 0 0">Nothing was sent to the office and no
+                 stock was taken. Fix the problem above and try again.</p>`,
+        foot:`<button class="btn primary" onclick="Modal.close()">Close</button>`
+      });
+    }finally{
+      Cart.submitting = false;
+      Cart.setPlacing(false, 'Place order');
+    }
+  },
+
   async place(){
+    if(CLOUD) return Cart.placeCloud();               // shared database
     if(STANDALONE) return Cart.placeLocal();          // fully-local order path
     const t = Cart.totals();
     if(!t.pcs){ toast('Nothing in the draft yet', true); return; }
@@ -4344,6 +4651,13 @@ if(STANDALONE){
   Store.load();
 }
 (function boot(){
+  if(CLOUD){
+    // a saved database session means the person is still signed in
+    if(Cloud.loadSession()){
+      Auth.enter().catch(()=>{ Cloud.saveSession(null); $('#lcode').focus(); });
+    } else { $('#lcode').focus(); }
+    return;
+  }
   try{
     const s = sessionStorage.getItem('ckl_session');
     if(s){
