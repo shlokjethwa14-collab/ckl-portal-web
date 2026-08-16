@@ -3841,6 +3841,8 @@ const Stock = {
       foot:`<div class="sheetsum">
           <div class="ss"><div class="sl">Total ${inward?'incoming':'outgoing'}</div>
             <b id="stkTot">0 pcs</b></div>
+          <div class="ss"><div class="sl">Value at ${money(a.rate)}/pc</div>
+            <b id="stkVal">${money(0)}</b></div>
           <button class="btn" onclick="Modal.close()">Cancel</button>
           <button class="btn accent" onclick="Stock.applyAdjust()">
             ${inward ? 'Add to stock' : 'Deduct from stock'}</button>
@@ -4012,9 +4014,11 @@ const Stock = {
     if(!single) Stock._bc = '';
 
     const mix = Stock.mixFor();
+    const per = mix.reduce((t,m)=>t+m.qty,0);
     const mx = $('#stkMix');
     if(mx) mx.innerHTML = mix.map(m=>`<b>${m.qty}</b>× ${esc(m.colour)}`).join(' &nbsp;·&nbsp; ')
-      + ` &nbsp;=&nbsp; <b>${mix.reduce((t,m)=>t+m.qty,0)}</b> pcs per box`;
+      + ` &nbsp;=&nbsp; <b>${per}</b> pcs per box`
+      + ` &nbsp;·&nbsp; <b>${money(per * num(a.rate))}</b> a box`;
 
     const rows = $('#stkBoxRows');
     if(rows) rows.innerHTML = a.sizes.map(z=>{
@@ -4057,11 +4061,13 @@ const Stock = {
     Stock.badges();
   },
   badges(){
-    const t = $('#stkTot');
+    const t = $('#stkTot'), val = $('#stkVal');
+    const a = article(Stock._aid), rate = a ? num(a.rate) : 0;
     if(Stock._mode === 'box'){
       const per = Stock.mixFor().reduce((s,m)=>s+m.qty,0);
       const boxes = Object.keys(Stock._boxes).reduce((s,z)=>s+num(Stock._boxes[z]), 0);
       if(t) t.textContent = boxes + (boxes===1?' box · ':' boxes · ') + (boxes*per) + ' pcs';
+      if(val) val.textContent = money(boxes * per * rate);
       return;
     }
     let tot = 0; const perSize = {};
@@ -4070,6 +4076,7 @@ const Stock = {
       const z = k.split('|')[1]; perSize[z] = (perSize[z]||0) + q;
     });
     if(t) t.textContent = tot + ' pcs';
+    if(val) val.textContent = money(tot * rate);
     $$('[data-stkc]').forEach(el=>{
       const q = perSize[el.dataset.stkc];
       el.textContent = q ? '+'+q : '';
@@ -4119,7 +4126,7 @@ const Stock = {
     const boxes = byBox
       ? Object.keys(Stock._boxes).reduce((s,z)=>s+num(Stock._boxes[z]), 0) : 0;
     toast(`${a.code}: ` + (byBox ? `${boxes} box${boxes===1?'':'es'} (${moved} pcs) ` : `${moved} pcs `)
-          + (dir>0?'received':'dispatched')
+          + (dir>0?'received':'dispatched') + ` · ${money(moved * num(a.rate))}`
           + (capped ? ` · ${capped} pcs skipped (not in stock)` : ''), !!capped);
   }
 };
