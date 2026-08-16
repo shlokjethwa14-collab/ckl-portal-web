@@ -424,12 +424,12 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
    A page cannot stop a screenshot — no browser exposes that control, and a
    phone camera is outside the web entirely. What these do is make a leak
    traceable and awkward: every capture carries the login ID that took it. */
+/* The watermark is off on screen — it read as clutter. It still stamps a
+   printout or a save-to-PDF, which costs nothing visually. */
 #wmark{position:fixed; inset:0; z-index:290; pointer-events:none; display:none;
-  opacity:.075; mix-blend-mode:multiply;
+  opacity:.28; mix-blend-mode:multiply;
   background-repeat:repeat; background-position:0 0}
-#wmark.on{display:block}
-[data-theme="dark"] #wmark{opacity:.11; mix-blend-mode:screen}
-@media print{ #wmark{display:block !important; opacity:.3} }
+@media print{ #wmark.on{display:block} }
 
 #awayveil{position:fixed; inset:0; z-index:295; display:none; place-items:center;
   background:var(--bg); -webkit-backdrop-filter:blur(22px); backdrop-filter:blur(22px)}
