@@ -420,6 +420,30 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
 #toast.on{opacity:1; transform:translate(-50%,0)}
 #toast.bad{background:var(--red)}
 
+/* ---- leak deterrence -------------------------------------------------------
+   A page cannot stop a screenshot — no browser exposes that control, and a
+   phone camera is outside the web entirely. What these do is make a leak
+   traceable and awkward: every capture carries the login ID that took it. */
+#wmark{position:fixed; inset:0; z-index:290; pointer-events:none; display:none;
+  opacity:.075; mix-blend-mode:multiply;
+  background-repeat:repeat; background-position:0 0}
+#wmark.on{display:block}
+[data-theme="dark"] #wmark{opacity:.11; mix-blend-mode:screen}
+@media print{ #wmark{display:block !important; opacity:.3} }
+
+#awayveil{position:fixed; inset:0; z-index:295; display:none; place-items:center;
+  background:var(--bg); -webkit-backdrop-filter:blur(22px); backdrop-filter:blur(22px)}
+#awayveil.on{display:grid}
+#awayveil .av-in{display:grid; gap:6px; justify-items:center; text-align:center;
+  padding:26px 32px; border-radius:var(--r); background:var(--card); box-shadow:var(--sh-2)}
+#awayveil b{font-size:15px}
+#awayveil span{font-size:12.5px; color:var(--muted)}
+
+/* photos and prices are the leakable assets, so they resist casual grabbing */
+.noselect, .tph img, .photo-drop img, .mix, .price, .rate{
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+  -webkit-user-drag:none}
+
 /* misc */
 .hr{height:1px; background:var(--line-2); margin:18px 0}
 .sub{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px}
@@ -1010,6 +1034,11 @@ nav.tabs{position:static; top:auto}
 
 <div id="toast"></div>
 
+<!-- traceable watermark + away-blur: deterrence, not prevention (see Guard) -->
+<div id="wmark" aria-hidden="true"></div>
+<div id="awayveil" aria-hidden="true"><div class="av-in">
+  <b>Screen hidden</b><span>Click back into the window to continue</span></div></div>
+
 <script>
 "use strict";
 /* ============================================================================
@@ -1336,6 +1365,9 @@ const Store = {
         (DB.wholesalers||[]).forEach(w=>{ if(w.id !== 'self') jobs.push(Cloud.saveParty(w)); });
         (DB.boxTypes||[]).forEach(b=>jobs.push(Cloud.saveBoxType(b)));
         (DB.orders||[]).forEach(o=>jobs.push(Cloud.saveOrder(o)));
+        // settings (company name, logo) were being left behind, so an uploaded
+        // logo vanished on the next refresh
+        if(DB.settings) jobs.push(Cloud.saveSettings(DB.settings));
         await Promise.all(jobs);
       }catch(e){
         toast('Could not save to the database: ' + e.message, true);
@@ -1665,6 +1697,15 @@ const Cloud = {
     body:[{id:b.id,name:b.name,note:b.note,mix:b.mix,active:b.active!==false}]}); },
   setOrderStatus(id, status){ return Cloud.rest('orders?id=eq.'+encodeURIComponent(id),
     {method:'PATCH', body:{status}}); },
+  /** Settings live one-row-per-key, so the logo is stored like any other setting. */
+  saveSetting(key, value){ return Cloud.rest('settings', {method:'POST',
+    headers:{'Prefer':'resolution=merge-duplicates'}, body:[{key, value}]}); },
+  saveSettings(obj){
+    const rows = Object.keys(obj||{}).map(k=>({key:k, value:obj[k]}));
+    if(!rows.length) return Promise.resolve();
+    return Cloud.rest('settings', {method:'POST',
+      headers:{'Prefer':'resolution=merge-duplicates'}, body:rows});
+  },
   saveOrder(o){ return Cloud.rest('orders?id=eq.'+encodeURIComponent(o.id), {method:'PATCH',
     body:{ status:o.status, note:o.note, total_qty:o.totalQty,
            total_value:o.totalValue, lines:o.lines }}); }
@@ -1877,6 +1918,7 @@ const Auth = {
                                       .filter(Boolean).join(' · ');
       }
       Nav.build();
+      Guard.on();                  // watermark carries whoever is signed in
       Cloud.poll = setInterval(async ()=>{
         if(!SESSION || document.hidden || $('#scrim')) return;
         try{
@@ -1906,6 +1948,7 @@ const Auth = {
                                       .filter(Boolean).join(' · ');
       }
       Nav.build();
+      Guard.on();
       return;
     }
 
@@ -1929,6 +1972,7 @@ const Auth = {
                                     .filter(Boolean).join(' · ');
     }
     Nav.build();
+    Guard.on();                    // watermark carries whoever is signed in
     Server.startPolling(20);
     toast('Signed in');
   },
@@ -1943,6 +1987,7 @@ const Auth = {
     SESSION = null;
     if(!STANDALONE) DB = null;                 // standalone keeps its local data
     Cart.clear(true);
+    Guard.off();
     $('#app').classList.remove('on');
     $('#login').style.display = '';
     $('#lcode').value=''; $('#lpin').value=''; $('#lerr').textContent='';
@@ -3779,23 +3824,20 @@ const Stock = {
   adjust(aid, dir){
     const a = article(aid); if(!a) return;
     const inward = dir > 0;
-    Stock._aid = aid; Stock._dir = dir; Stock._size = a.sizes[0]; Stock._stage = {};
+    Stock._aid = aid; Stock._dir = dir; Stock._size = a.sizes[0];
+    Stock._stage = {}; Stock._boxes = {};
+    Stock._mode = 'pcs';
+    Stock._bt = (Stock.usableTypes(a)[0] || {}).id || '';
+    Stock._bc = '';
     Modal.show({
       title: inward ? 'Receive stock' : 'Dispatch stock',
-      sub: `${a.code} — ${a.name} · size-wise, ${inward ? 'added to' : 'deducted from'} current stock`,
+      sub: `${a.code} — ${a.name} · ${inward ? 'added to' : 'deducted from'} current stock`,
       body:`
-        <div class="eyebrow" style="margin-bottom:8px">Size — pick one, enter shades, then the next</div>
-        <div class="pill-list" id="stkSizes">${a.sizes.map((z,i)=>
-          `<button class="pick ${i===0?'on':''}" data-stksz="${esc(z)}">${esc(z)}<i
-             class="pc" data-stkc="${esc(z)}"></i></button>`).join('')}</div>
-        <div class="row" style="align-items:center; margin-top:12px">
-          <input type="number" id="stkAll" min="0" placeholder="Same qty each shade">
-          <button class="btn sm" id="stkFillSize" style="flex:none">This size</button>
-          <button class="btn sm" id="stkFillAll" style="flex:none">All sizes</button>
+        <div class="pill-list" id="stkMode" style="margin-bottom:12px">
+          <button class="pick on" data-stkmode="pcs">By pieces</button>
+          <button class="pick" data-stkmode="box">By box</button>
         </div>
-        <div id="stkRows" style="margin-top:4px"></div>
-        <p class="tiny muted" style="margin:8px 0 0">Tap +6 / +12 to build a quantity, or type it.
-          Enter 0 in the box above to clear a size${inward?'':' · dispatch never exceeds stock'}.</p>`,
+        <div id="stkBody"></div>`,
       foot:`<div class="sheetsum">
           <div class="ss"><div class="sl">Total ${inward?'incoming':'outgoing'}</div>
             <b id="stkTot">0 pcs</b></div>
@@ -3807,11 +3849,39 @@ const Stock = {
     // the scrim is rebuilt on every open, so these listeners never stack
     const scrim = $('#scrim');
     scrim.addEventListener('click', e=>{
+      const md = e.target.closest('[data-stkmode]');
+      if(md){
+        Stock._mode = md.dataset.stkmode;
+        $$('#stkMode .pick').forEach(p=>p.classList.toggle('on', p===md));
+        // the two modes keep separate baskets, so switching never mixes counts
+        Stock._stage = {}; Stock._boxes = {};
+        Stock.paintMode(); return;
+      }
       const sz = e.target.closest('[data-stksz]');
       if(sz){
         Stock._size = sz.dataset.stksz;
         $$('#stkSizes .pick').forEach(p=>p.classList.toggle('on', p===sz));
         Stock.paintRows(); return;
+      }
+      const bt = e.target.closest('[data-stkbt]');
+      if(bt){
+        Stock._bt = bt.dataset.stkbt; Stock._bc = ''; Stock._boxes = {};
+        Stock.paintBox(); return;
+      }
+      const bc = e.target.closest('[data-stkbc]');
+      if(bc){
+        Stock._bc = bc.dataset.stkbc; Stock._boxes = {};
+        Stock.paintBox(); return;
+      }
+      const step = e.target.closest('[data-stkbstep]');
+      if(step){
+        const z = step.dataset.z;
+        let v = num(Stock._boxes[z]) + num(step.dataset.stkbstep);
+        v = Math.max(0, Math.min(v, Stock.maxBoxes(z)));
+        if(v > 0) Stock._boxes[z] = v; else delete Stock._boxes[z];
+        const inp = $$('#stkBoxRows [data-stkbrow]').find(x=>x.dataset.z===z);
+        if(inp) inp.value = v || '';
+        Stock.badges(); return;
       }
       const fillAll = e.target.closest('#stkFillAll');
       if(fillAll || e.target.closest('#stkFillSize')){
@@ -3841,13 +3911,129 @@ const Stock = {
       }
     });
     scrim.addEventListener('input', e=>{
+      const brow = e.target.closest('[data-stkbrow]');
+      if(brow){
+        const z = brow.dataset.z;
+        const v = Math.max(0, Math.min(num(brow.value), Stock.maxBoxes(z)));
+        if(v !== num(brow.value)) brow.value = v || '';
+        if(v > 0) Stock._boxes[z] = v; else delete Stock._boxes[z];
+        Stock.badges(); return;
+      }
       const inp = e.target.closest('[data-stkrow]'); if(!inp) return;
       const q = Math.max(0, num(inp.value));
       const k = inp.dataset.c + '|' + Stock._size;
       if(q > 0) Stock._stage[k] = q; else delete Stock._stage[k];
       Stock.badges();          // totals only — never repaint under a typing cursor
     });
-    Stock.paintRows();
+    Stock.paintMode();
+  },
+  /* A box type is usable on an article when its shades exist on that article.
+     A single-shade type is always usable — the shade is chosen at entry. */
+  usableTypes(a){
+    return (DB.boxTypes||[]).filter(b=>{
+      const mix = (b.mix||[]).filter(m=>m.colour && m.qty>0);
+      if(!mix.length) return false;
+      if(mix.length === 1) return true;
+      return mix.every(m=>a.colours.includes(m.colour));
+    });
+  },
+  /* The mix actually being applied — with the shade swapped in for 1-colour boxes. */
+  mixFor(){
+    const b = boxType(Stock._bt); if(!b) return [];
+    const mix = (b.mix||[]).filter(m=>m.colour && m.qty>0);
+    if(mix.length === 1) return [{colour: Stock._bc || mix[0].colour, qty: mix[0].qty}];
+    return mix;
+  },
+  /* Dispatch may not drive any shade below zero, so a box only leaves when
+     every shade in its mix can cover it. Receiving has no ceiling. */
+  maxBoxes(size){
+    if(Stock._dir > 0) return 9999;
+    const a = article(Stock._aid); const mix = Stock.mixFor();
+    if(!a || !mix.length) return 0;
+    return mix.reduce((lo,m)=>Math.min(lo,
+      Math.floor(num(a.stock[m.colour+'|'+size]) / m.qty)), 9999);
+  },
+  paintMode(){
+    const a = article(Stock._aid); const box = $('#stkBody'); if(!a || !box) return;
+    if(Stock._mode === 'box'){
+      const types = Stock.usableTypes(a);
+      box.innerHTML = !types.length
+        ? `<div class="glass empty rv"><h4>No box types yet</h4>
+             <p>Add one in Box types — for example 3-colour, 6-colour or 1-colour —
+                then you can take stock in and out by the box.</p></div>`
+        : `<div class="eyebrow" style="margin-bottom:8px">Box type</div>
+           <div class="pill-list" id="stkBoxTypes">${types.map(b=>{
+             const per = (b.mix||[]).reduce((t,m)=>t+num(m.qty),0);
+             return `<button class="pick ${b.id===Stock._bt?'on':''}" data-stkbt="${b.id}"
+               >${esc(b.name)} <i class="pc">${per}</i></button>`; }).join('')}</div>
+           <div id="stkShade"></div>
+           <div id="stkMix" class="mix" style="margin-top:10px"></div>
+           <div class="eyebrow" style="margin:14px 0 6px">Boxes per size</div>
+           <div id="stkBoxRows"></div>
+           <p class="tiny muted" style="margin:8px 0 0">Stock moves by whole boxes —
+             each box applies its full colour mix${Stock._dir<0
+               ? ' · a box only goes out when every shade in it is in stock' : ''}.</p>`;
+      if(types.length && !types.some(b=>b.id===Stock._bt)) Stock._bt = types[0].id;
+      Stock.paintBox();
+    } else {
+      box.innerHTML = `
+        <div class="eyebrow" style="margin-bottom:8px">Size — pick one, enter shades, then the next</div>
+        <div class="pill-list" id="stkSizes">${a.sizes.map(z=>
+          `<button class="pick ${z===Stock._size?'on':''}" data-stksz="${esc(z)}">${esc(z)}<i
+             class="pc" data-stkc="${esc(z)}"></i></button>`).join('')}</div>
+        <div class="row" style="align-items:center; margin-top:12px">
+          <input type="number" id="stkAll" min="0" placeholder="Same qty each shade">
+          <button class="btn sm" id="stkFillSize" style="flex:none">This size</button>
+          <button class="btn sm" id="stkFillAll" style="flex:none">All sizes</button>
+        </div>
+        <div id="stkRows" style="margin-top:4px"></div>
+        <p class="tiny muted" style="margin:8px 0 0">Tap +6 / +12 to build a quantity, or type it.
+          Enter 0 in the box above to clear a size${Stock._dir>0?'':' · dispatch never exceeds stock'}.</p>`;
+      Stock.paintRows();
+    }
+  },
+  paintBox(){
+    const a = article(Stock._aid); if(!a) return;
+    const b = boxType(Stock._bt);
+    const single = b && (b.mix||[]).filter(m=>m.colour && m.qty>0).length === 1;
+    $$('#stkBoxTypes .pick').forEach(p=>p.classList.toggle('on', p.dataset.stkbt===Stock._bt));
+
+    // a 1-colour box is a template: the shade is chosen here, not fixed in the mix
+    const sh = $('#stkShade');
+    if(sh) sh.innerHTML = !single ? '' :
+      `<div class="eyebrow" style="margin:12px 0 8px">Shade for this box</div>
+       <div class="pill-list">${a.colours.map((c,i)=>{
+         const on = Stock._bc ? c===Stock._bc : i===0;
+         if(on && !Stock._bc) Stock._bc = c;
+         return `<button class="pick ${on?'on':''}" data-stkbc="${esc(c)}"
+           ><i style="width:12px; height:12px; border-radius:50%; display:inline-block;
+              vertical-align:-1px; margin-right:6px; background:${swatchOf(c)};
+              box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)"></i>${esc(c)}</button>`; }).join('')}</div>`;
+    if(!single) Stock._bc = '';
+
+    const mix = Stock.mixFor();
+    const mx = $('#stkMix');
+    if(mx) mx.innerHTML = mix.map(m=>`<b>${m.qty}</b>× ${esc(m.colour)}`).join(' &nbsp;·&nbsp; ')
+      + ` &nbsp;=&nbsp; <b>${mix.reduce((t,m)=>t+m.qty,0)}</b> pcs per box`;
+
+    const rows = $('#stkBoxRows');
+    if(rows) rows.innerHTML = a.sizes.map(z=>{
+      const cap = Stock.maxBoxes(z), out = Stock._dir < 0;
+      const v = Stock._boxes[z] || '';
+      return `<div class="szrow">
+        <div class="szl"><div class="szn">${esc(z)}</div>
+          <div class="szs ${out && cap===0 ? 'out':''}">${out
+            ? (cap===0 ? 'no full box in stock' : 'max ' + cap + ' box' + (cap>1?'es':''))
+            : mix.map(m=>num(a.stock[m.colour+'|'+z])).reduce((t,n)=>t+n,0) + ' pcs now'}</div></div>
+        <div class="stp">
+          <button class="btn xs" data-stkbstep="-1" data-z="${esc(z)}">−</button>
+          <button class="btn xs" data-stkbstep="1"  data-z="${esc(z)}"
+            ${out && cap===0 ? 'disabled':''}>+</button>
+          <input type="number" min="0" placeholder="0" value="${v}"
+            data-stkbrow data-z="${esc(z)}" ${out ? `max="${cap}"` : ''}
+            ${out && cap===0 ? 'disabled' : ''}></div>
+      </div>`; }).join('');
+    Stock.badges();
   },
   paintRows(){
     const a = article(Stock._aid); const box = $('#stkRows'); if(!a || !box) return;
@@ -3871,23 +4057,51 @@ const Stock = {
     Stock.badges();
   },
   badges(){
+    const t = $('#stkTot');
+    if(Stock._mode === 'box'){
+      const per = Stock.mixFor().reduce((s,m)=>s+m.qty,0);
+      const boxes = Object.keys(Stock._boxes).reduce((s,z)=>s+num(Stock._boxes[z]), 0);
+      if(t) t.textContent = boxes + (boxes===1?' box · ':' boxes · ') + (boxes*per) + ' pcs';
+      return;
+    }
     let tot = 0; const perSize = {};
     Object.keys(Stock._stage).forEach(k=>{
       const q = num(Stock._stage[k]); tot += q;
       const z = k.split('|')[1]; perSize[z] = (perSize[z]||0) + q;
     });
-    const t = $('#stkTot'); if(t) t.textContent = tot + ' pcs';
+    if(t) t.textContent = tot + ' pcs';
     $$('[data-stkc]').forEach(el=>{
       const q = perSize[el.dataset.stkc];
       el.textContent = q ? '+'+q : '';
     });
   },
+  /* Turn the staged boxes into the same shade|size deltas the pieces mode makes,
+     so both routes end up in one place and one validation. */
+  boxDeltas(){
+    const mix = Stock.mixFor(); const out = {};
+    if(!mix.length) return out;
+    Object.keys(Stock._boxes).forEach(z=>{
+      const n = Math.max(0, num(Stock._boxes[z])); if(!n) return;
+      mix.forEach(m=>{ const k = m.colour+'|'+z; out[k] = num(out[k]) + m.qty*n; });
+    });
+    return out;
+  },
   applyAdjust(){
     const a = article(Stock._aid); if(!a) return;
-    const dir = Stock._dir;
+    const dir = Stock._dir, byBox = Stock._mode === 'box';
+    const stage = byBox ? Stock.boxDeltas() : Stock._stage;
+
+    if(byBox && dir < 0){
+      // all-or-nothing: a part-emptied box would leave the count wrong on both sides
+      const short = Object.keys(stage).find(k=>num(stage[k]) > num(a.stock[k]));
+      if(short){
+        toast('Not enough stock in ' + short.replace('|',' ') + ' for that many boxes', true);
+        return;
+      }
+    }
     let moved = 0, capped = 0;
-    Object.keys(Stock._stage).forEach(k=>{
-      let q = Math.max(0, num(Stock._stage[k])); if(!q) return;
+    Object.keys(stage).forEach(k=>{
+      let q = Math.max(0, num(stage[k])); if(!q) return;
       if(dir < 0){
         const have = num(a.stock[k]);
         if(q > have){ capped += q - have; q = have; }   // never below zero
@@ -3897,10 +4111,15 @@ const Stock = {
       }
       moved += q;
     });
-    if(!moved && !capped){ toast('Enter at least one quantity', true); return; }
+    if(!moved && !capped){
+      toast(byBox ? 'Enter at least one box' : 'Enter at least one quantity', true); return;
+    }
     Store.save(); Sync.push('upsertArticle', {article:a});
     Modal.close(); Nav.refresh();
-    toast(`${a.code}: ${moved} pcs ${dir>0?'received':'dispatched'}`
+    const boxes = byBox
+      ? Object.keys(Stock._boxes).reduce((s,z)=>s+num(Stock._boxes[z]), 0) : 0;
+    toast(`${a.code}: ` + (byBox ? `${boxes} box${boxes===1?'':'es'} (${moved} pcs) ` : `${moved} pcs `)
+          + (dir>0?'received':'dispatched')
           + (capped ? ` · ${capped} pcs skipped (not in stock)` : ''), !!capped);
   }
 };
@@ -4234,7 +4453,9 @@ Views.boxes = function(v){
           <div class="tiny muted">${esc(b.note||'')}</div></div>
           <div class="spacer" style="flex:1"></div>
           <span class="chip ink">${per} pcs</span></div>
-        <div class="mix">${b.mix.map(m=>`<b>${m.qty}</b>× ${esc(m.colour)}`).join(' &nbsp;·&nbsp; ')}</div>
+        <div class="mix">${b.mix.length === 1
+          ? `<b>${b.mix[0].qty}</b>× one shade <span class="tiny muted">· picked when stock is entered</span>`
+          : b.mix.map(m=>`<b>${m.qty}</b>× ${esc(m.colour)}`).join(' &nbsp;·&nbsp; ')}</div>
         <div class="pill-list" style="margin-top:11px">
           ${used.length ? used.map(a=>`<span class="chip">${esc(a.code)}</span>`).join('')
                         : '<span class="tiny muted">Not used by any article</span>'}</div>
@@ -4258,6 +4479,11 @@ const BoxForm = {
           <label class="fl"><span>Note</span>
           <input id="b_note" value="${esc(b.note||'')}" placeholder="1 pc each of six shades"></label></div>
         <div class="sec"><h4>Colour mix</h4>
+          <div class="pill-list" style="margin-bottom:10px">
+            <button class="btn xs" onclick="BoxForm.preset(1)">1-colour</button>
+            <button class="btn xs" onclick="BoxForm.preset(3)">3-colour</button>
+            <button class="btn xs" onclick="BoxForm.preset(6)">6-colour</button>
+          </div>
           <div id="mixrows">${b.mix.map((m,i)=>BoxForm.rowHTML(m,i)).join('')}</div>
           <button class="btn xs" style="margin-top:9px" onclick="BoxForm.addRow()">+ Add shade</button>
           <p class="tiny muted" id="b_total" style="margin:10px 0 0"></p>
@@ -4280,6 +4506,21 @@ const BoxForm = {
     $('#mixrows').insertAdjacentHTML('beforeend', BoxForm.rowHTML({colour:'',qty:1},0));
     BoxForm.total();
   },
+  /* Starters for the three boxes actually packed on the floor. A 1-colour box
+     is one shade only — which shade is chosen when the stock is entered, so the
+     name here is just a placeholder. */
+  preset(n){
+    const shades = ['Black','Navy','Dark Grey','Maroon','Bottle Green','Royal Blue'];
+    const mix = n === 1 ? [{colour:'Black', qty:12}]
+                        : shades.slice(0,n).map(c=>({colour:c, qty: n===3 ? 2 : 1}));
+    $('#mixrows').innerHTML = mix.map((m,i)=>BoxForm.rowHTML(m,i)).join('');
+    const nm = $('#b_name'), nt = $('#b_note');
+    if(nm && !nm.value.trim()) nm.value = n + '-Colour Box';
+    if(nt && !nt.value.trim()) nt.value = n === 1
+      ? '12 pcs of one shade — shade chosen when you add stock'
+      : `${mix[0].qty} pc${mix[0].qty>1?'s':''} each of ${n} shades`;
+    BoxForm.total();
+  },
   read(){
     return $$('[data-mixrow]').map(r=>({
       colour: (r.querySelector('[data-mc]').value||'').trim(),
@@ -4289,7 +4530,10 @@ const BoxForm = {
   total(){
     const mix = BoxForm.read();
     const t = mix.reduce((x,m)=>x+m.qty,0);
-    const el = $('#b_total'); if(el) el.textContent = `${t} pcs per box across ${mix.length} shade${mix.length===1?'':'s'}.`;
+    const el = $('#b_total');
+    if(el) el.textContent = `${t} pcs per box across ${mix.length} shade${mix.length===1?'':'s'}.`
+      + (mix.length === 1
+         ? ' One shade only — you pick which shade each time you add or dispatch stock.' : '');
   },
   save(id){
     const name = ($('#b_name').value||'').trim();
@@ -4543,32 +4787,53 @@ function applyLogo(){
 }
 
 const Brand = {
+  /** Saved to the database and confirmed before we say so, so a refresh can
+      never quietly put the built-in mark back. */
   async upload(inp){
     const f = inp.files && inp.files[0]; inp.value = '';
     if(!f) return;
-    try{
-      const dataURL = await Brand.fit(f);
-      DB.settings.logo = dataURL;
-      Store.save(); Sync.push('saveSettings', {settings:DB.settings});
-      applyLogo(); Nav.refresh();
-      toast('Logo updated — shown everywhere now');
-    }catch(e){ toast('Could not read that image', true); }
+    let dataURL;
+    try{ dataURL = await Brand.fit(f); }
+    catch(e){ toast('Could not read that image — try a PNG or JPG', true); return; }
+
+    DB.settings.logo = dataURL;
+    applyLogo();
+    if(CLOUD){
+      try{
+        await Cloud.saveSetting('logo', dataURL);
+        toast('Logo saved — it will stay after refresh');
+      }catch(e){
+        DB.settings.logo = '';    // don't leave a logo showing that was not stored
+        applyLogo();
+        toast('Logo NOT saved: ' + e.message, true);
+        return;
+      }
+    } else {
+      Store.save();
+      toast('Logo saved');
+    }
+    Nav.refresh();
   },
-  remove(){
+
+  async remove(){
     DB.settings.logo = '';
-    Store.save(); Sync.push('saveSettings', {settings:DB.settings});
-    applyLogo(); Nav.refresh();
+    applyLogo();
+    if(CLOUD){
+      try{ await Cloud.saveSetting('logo', ''); }
+      catch(e){ toast('Could not update: ' + e.message, true); return; }
+    } else Store.save();
+    Nav.refresh();
     toast('Back to the built-in mark');
   },
-  /** Rasterise at descending heights until the data URL is small enough for
-      localStorage and a Sheets cell (50k chars). Transparency is preserved —
-      no white fill, PNG output. */
+  /** Rasterise at descending heights until it fits comfortably. The database
+      has no small cell limit, so we start large and keep the logo crisp on
+      high-resolution phone screens. Transparency is preserved (PNG, no fill). */
   fit(file){
     return new Promise((res, rej)=>{
       const img = new Image(), url = URL.createObjectURL(file);
       img.onload = () => {
         URL.revokeObjectURL(url);
-        for(const h of [220, 160, 120, 90, 64]){
+        for(const h of [400, 320, 240, 180, 120, 80]){
           const sc = Math.min(1, h/img.height);
           const c = document.createElement('canvas');
           c.width = Math.max(1, Math.round(img.width*sc));
@@ -4577,9 +4842,9 @@ const Brand = {
           x.imageSmoothingQuality = 'high';
           x.drawImage(img, 0, 0, c.width, c.height);
           const d = c.toDataURL('image/png');
-          if(d.length < 45000) return res(d);
+          if(d.length < 400000) return res(d);
         }
-        rej(new Error('logo too complex to store'));
+        rej(new Error('image too large'));
       };
       img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); };
       img.src = url;
@@ -4639,8 +4904,90 @@ addEventListener('keydown', e => {
 });
 
 /* ============================================================================
+   Guard — leak deterrence
+
+   Read this before relying on it. A web page CANNOT block a screenshot. There
+   is no browser API for it; Windows/macOS/Android/iOS capture happens outside
+   the page, and anyone can photograph the screen with a second phone. Any site
+   claiming otherwise is bluffing. So this does the two things that actually
+   work commercially:
+
+     1. Every screen carries a faint tiled watermark with the login ID, date
+        and time. A leaked screenshot names the account it came from, which is
+        what stops sharing in practice.
+     2. Casual copying is made awkward — no right-click menu, no image drag or
+        long-press save, no text selection on photos and prices, and the screen
+        blanks when the window loses focus (which also blanks it for most
+        snipping tools and screen shares).
+   ========================================================================== */
+const Guard = {
+  on(){
+    let who = '';
+    try{
+      who = !SESSION ? ''
+          : SESSION.role === 'admin' ? 'ADMIN'
+          : ((party(SESSION.partyId)||{}).code || 'WHOLESALER');
+    }catch(e){ who = SESSION ? 'CKL' : ''; }   // DB not loaded yet — still stamp something
+    if(!who){ Guard.off(); return; }
+    const el = $('#wmark'); if(!el) return;
+    el.style.backgroundImage = 'url("' + Guard.tile(who) + '")';
+    el.classList.add('on');
+    // keep the stamp current, so a screenshot dates itself to the minute
+    clearInterval(Guard._t);
+    Guard._t = setInterval(()=>{ if(SESSION) Guard.on(); else Guard.off(); }, 120000);
+  },
+  off(){
+    clearInterval(Guard._t); Guard._t = null;
+    const el = $('#wmark'); if(el){ el.classList.remove('on'); el.style.backgroundImage=''; }
+  },
+  /** One repeating SVG tile: the login ID and the moment it was on screen. */
+  tile(who){
+    const d = new Date();
+    const p = n => String(n).padStart(2,'0');
+    const stamp = `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    const line = esc(who + '  ·  ' + stamp + '  ·  CKL');
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180">
+         <text x="150" y="96" fill="#8a8f99" font-family="system-ui,sans-serif"
+               font-size="15" font-weight="600" text-anchor="middle"
+               transform="rotate(-24 150 90)">${line}</text></svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  },
+  install(){
+    // no context menu — removes "Save image as" and "Copy image" in one step
+    document.addEventListener('contextmenu', e=>{
+      if(!SESSION) return;
+      if(e.target.closest('input, textarea')) return;   // typing still needs paste
+      e.preventDefault();
+      toast('Saving from this portal is disabled');
+    });
+    // dragging a photo out to the desktop or another tab
+    document.addEventListener('dragstart', e=>{
+      if(SESSION && e.target.closest('img, .tph, .photo-drop')) e.preventDefault();
+    });
+    // the veil is the only part that touches a real capture: most snipping
+    // tools take focus first, so the content is already hidden by then
+    const veil = $('#awayveil');
+    const hide = ()=>{ if(SESSION && veil) veil.classList.add('on'); };
+    const show = ()=>{ if(veil) veil.classList.remove('on'); };
+    window.addEventListener('blur', hide);
+    window.addEventListener('focus', show);
+    document.addEventListener('visibilitychange', ()=> document.hidden ? hide() : show());
+    veil && veil.addEventListener('click', show);
+    // PrintScreen on Windows: the capture still happens, but the clipboard copy
+    // is overwritten and the attempt is called out
+    document.addEventListener('keyup', e=>{
+      if(!SESSION || e.key !== 'PrintScreen') return;
+      try{ navigator.clipboard.writeText('CKL portal — screenshots are watermarked and logged.'); }catch(err){}
+      toast('Screenshots of this portal carry your login ID', true);
+    });
+  }
+};
+
+/* ============================================================================
    Boot
    ========================================================================== */
+Guard.install();
 Theme.set(Theme.get());          // sync the toggle labels with the pre-paint theme
 applyLogo();                     // uploaded logo if one is stored, vector otherwise
 installPadHandlers();            // delegated once, never per render
