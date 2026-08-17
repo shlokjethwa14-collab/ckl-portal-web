@@ -28,6 +28,11 @@
   --red-ink:#8E0B20;
   --red-wash:rgba(200,16,46,.08);
   --red-line:rgba(200,16,46,.28);
+  /* Two reds, because one cannot do both jobs on a dark ground: --red has to
+     stand out AS text against the surface, --red-fill has to CARRY white text.
+     Brightening one breaks the other. They are the same colour in the light
+     theme, where a single red clears both bars. */
+  --red-fill:#C8102E;
 
   --glass:rgba(255,255,255,.62);
   --glass-2:rgba(255,255,255,.44);
@@ -57,6 +62,28 @@
   --f-display:'Archivo','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --f-body:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
   --f-mono:'JetBrains Mono',ui-monospace,'SF Mono','Cascadia Mono','Consolas',monospace;
+
+  /* ---- neumorphic depth ----------------------------------------------------
+     These live here, not inside one theme, so BOTH themes get them. A custom
+     property is substituted where it is used, not where it is declared, so each
+     theme's own --nd (shade side) and --nl (light side) feed straight in and the
+     same six shadows re-derive per theme. Defining them under one theme is what
+     left dark mode with box-shadow:none on every surface. */
+  --nbg:#e9ebf1;
+  --nd:rgba(162,169,190,.60);      /* shade side  — bottom right */
+  --nl:rgba(255,255,255,.95);      /* light side  — top left     */
+  /* A lifted surface (hover) and a sunk one (inputs, segmented tracks).
+     In the light theme neumorphism carries this entirely in the shadow, so both
+     stay level with the base; the dark theme needs a real tone step as well,
+     because a faint highlight alone does not survive on a dark ground. */
+  --n-hi:var(--nbg);
+  --n-lo:var(--nbg);
+  --up-xs:2px 2px 5px var(--nd), -2px -2px 5px var(--nl);
+  --up-sm:4px 4px 9px var(--nd), -4px -4px 9px var(--nl);
+  --up:6px 6px 15px var(--nd), -6px -6px 15px var(--nl);
+  --up-lg:11px 11px 27px var(--nd), -11px -11px 27px var(--nl);
+  --in-sm:inset 2px 2px 4px var(--nd), inset -2px -2px 4px var(--nl);
+  --in:inset 4px 4px 9px var(--nd), inset -4px -4px 9px var(--nl);
 }
 
 *{box-sizing:border-box}
@@ -137,7 +164,7 @@ h1,h2,h3,h4{font-family:var(--f-display); margin:0; letter-spacing:-.022em; font
 .btn:focus-visible{outline:2px solid var(--red); outline-offset:2px}
 .btn.primary{background:var(--ink); color:#fff; border-color:var(--ink)}
 .btn.primary:hover{background:#000}
-.btn.accent{background:var(--red); color:#fff; border-color:var(--red)}
+.btn.accent{background:var(--red-fill); color:#fff; border-color:var(--red)}
 .btn.accent:hover{background:var(--red-ink)}
 .btn.ghost{background:transparent; border-color:transparent; color:var(--muted)}
 .btn.ghost:hover{background:rgba(255,255,255,.7); color:var(--ink)}
@@ -271,7 +298,7 @@ main{flex:1; padding:22px clamp(14px,3vw,28px) 130px; max-width:1520px; width:10
 .ph{aspect-ratio:4/3; background:linear-gradient(150deg,#e9eaee,#dfe1e6); position:relative; overflow:hidden}
 .ph img{width:100%; height:100%; object-fit:cover; display:block}
 .ph .noimg{position:absolute; inset:0; display:grid; place-items:center;
-  font-family:var(--f-display); font-size:11px; letter-spacing:.16em; color:#b3b7bd; text-transform:uppercase}
+  font-family:var(--f-display); font-size:11px; letter-spacing:.16em; color:var(--faint); text-transform:uppercase}
 .ph .tags{position:absolute; top:10px; left:10px; right:10px; display:flex; gap:6px; flex-wrap:wrap}
 .ph .soldout{position:absolute; inset:0; display:grid; place-items:center;
   background:rgba(255,255,255,.68); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px)}
@@ -359,7 +386,7 @@ table.mx td.lbl{font-size:11.5px; color:var(--ink-2); white-space:nowrap; paddin
 /* ---- preview banner: unmistakable, because you are wearing someone else's
    account and every rate on screen is theirs, not yours ---- */
 #pvbar{position:fixed; left:0; right:0; top:0; z-index:120; display:flex; align-items:center;
-  gap:12px; padding:9px clamp(12px,3vw,22px); background:var(--red); color:#fff;
+  gap:12px; padding:9px clamp(12px,3vw,22px); background:var(--red-fill); color:#fff;
   box-shadow:0 4px 18px rgba(0,0,0,.22)}
 #pvbar .pvtxt{flex:1; min-width:0; font-size:12.5px; line-height:1.3}
 #pvbar .pvtxt b{font-family:var(--f-mono); letter-spacing:.02em}
@@ -385,7 +412,7 @@ body:has(#pvbar) #app{padding-top:40px}
 
 /* fly chip */
 .fly{position:fixed; z-index:200; pointer-events:none; font-family:var(--f-mono); font-size:11.5px;
-  font-weight:700; color:#fff; background:var(--red); padding:4px 10px; border-radius:999px;
+  font-weight:700; color:#fff; background:var(--red-fill); padding:4px 10px; border-radius:999px;
   box-shadow:0 6px 18px rgba(200,16,46,.4)}
 
 /* ---- tables ---- */
@@ -456,7 +483,7 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
   -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
   transition:opacity var(--d-toast) var(--e), transform var(--d-toast) var(--e-out); max-width:min(440px,90vw)}
 #toast.on{opacity:1; transform:translate(-50%,0)}
-#toast.bad{background:var(--red)}
+#toast.bad{background:var(--red-fill)}
 
 /* ---- leak deterrence -------------------------------------------------------
    A page cannot stop a screenshot — no browser exposes that control, and a
@@ -539,19 +566,18 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
    The Liquid Glass theme above is kept and reachable from the header toggle.
    ========================================================================== */
 [data-theme="neu"]{
-  --ink:#363c4f; --ink-2:#4b5266; --muted:#727a90; --faint:#99a1b5;
+  /* The whole grey ramp had drifted too pale for a light neumorphic ground:
+     --muted measured 3.59:1 and --faint 2.78:1, and --faint is what labels the
+     sizes, the pieces-left counts and the style code — small text doing real
+     work. Every step now clears 4.5:1 while keeping three distinct levels.
+        ink 9.2  >  ink-2 7.1  >  muted 5.7  >  faint 4.8                     */
+  --ink:#363c4f; --ink-2:#4b5266; --muted:#545b6b; --faint:#5f6678;
   --line:rgba(120,130,155,.17); --line-2:rgba(120,130,155,.10);
   --red:#C8102E; --red-ink:#a20d25; --red-wash:rgba(200,16,46,.10); --red-line:rgba(200,16,46,.30);
   --nbg:#e9ebf1;
   --nd:rgba(162,169,190,.60);
   --nl:rgba(255,255,255,.95);
   --r-xs:10px; --r-sm:13px; --r:18px; --r-lg:22px; --r-xl:28px;
-  --up-xs:2px 2px 5px var(--nd), -2px -2px 5px var(--nl);
-  --up-sm:4px 4px 9px var(--nd), -4px -4px 9px var(--nl);
-  --up:6px 6px 15px var(--nd), -6px -6px 15px var(--nl);
-  --up-lg:11px 11px 27px var(--nd), -11px -11px 27px var(--nl);
-  --in-sm:inset 2px 2px 4px var(--nd), inset -2px -2px 4px var(--nl);
-  --in:inset 4px 4px 9px var(--nd), inset -4px -4px 9px var(--nl);
 }
 [data-theme="neu"] body{background:var(--nbg); color:var(--ink)}
 [data-theme="neu"] .field{background:var(--nbg)}
@@ -584,7 +610,7 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
 [data-theme="neu"] .btn.primary:hover{background:#2b3143;
   box-shadow:6px 6px 15px rgba(48,54,72,.38), -6px -6px 15px var(--nl)}
 [data-theme="neu"] .btn.primary:active{box-shadow:inset 3px 3px 7px rgba(0,0,0,.34)}
-[data-theme="neu"] .btn.accent{background:var(--red); color:#fff;
+[data-theme="neu"] .btn.accent{background:var(--red-fill); color:#fff;
   box-shadow:4px 4px 10px rgba(200,16,46,.32), -4px -4px 10px var(--nl)}
 [data-theme="neu"] .btn.accent:hover{background:var(--red-ink);
   box-shadow:6px 6px 15px rgba(200,16,46,.36), -6px -6px 15px var(--nl)}
@@ -660,7 +686,7 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
 .themesw svg{flex:none}
 [data-theme="neu"] .themesw{background:var(--nbg); box-shadow:var(--in-sm)}
 [data-theme="neu"] .themesw button[aria-checked=true]{background:var(--nbg); box-shadow:var(--up-xs); color:var(--ink)}
-[data-theme="dark"] .themesw{background:#1b1d23; box-shadow:var(--in-sm)}
+[data-theme="dark"] .themesw{background:var(--n-lo); box-shadow:var(--in-sm)}
 [data-theme="dark"] .themesw button[aria-checked=true]{background:var(--nbg); box-shadow:var(--up-xs); color:var(--ink)}
 #loginTheme{position:absolute; top:16px; right:16px; z-index:2}
 /* on a phone the header is tight — the icons alone still read */
@@ -747,12 +773,22 @@ nav.tabs{position:static; top:auto}
    Every colour is a token override, so no component rule is duplicated.
    ========================================================================== */
 [data-theme="dark"]{
-  --ink:#e7e9f0; --ink-2:#c7cbd8; --muted:#9aa1b4; --faint:#767e93;
+  /* Same ramp discipline as the light theme: --faint measured 3.68:1 here and
+     failed, so it is lifted to 4.86. ink 12.3 > ink-2 9.2 > muted 5.8 > faint 4.9 */
+  --ink:#e7e9f0; --ink-2:#c7cbd8; --muted:#9aa1b4; --faint:#8b93a8;
   --line:rgba(150,160,190,.16); --line-2:rgba(150,160,190,.10);
   --red:#ff4d63; --red-ink:#ff8496; --red-wash:rgba(255,77,99,.14); --red-line:rgba(255,77,99,.38);
-  --nbg:#1e2027;
-  --nd:rgba(0,0,0,.62);            /* shade side */
-  --nl:rgba(255,255,255,.045);     /* light side */
+  --red-fill:#e02b45;              /* white text on this clears AA (4.56:1) */
+  /* Dark neumorphism is a narrower problem than light: the surface has to sit
+     far enough above pure black that the shade side still has somewhere to go,
+     while the light side stays a whisper — anything brighter reads as a glow
+     rather than a lit edge. This trio was tuned against real cards, inputs and
+     the stock grid, in that order. */
+  --nbg:#24272f;
+  --nd:rgba(8,9,12,.80);           /* shade side — near-black, hue of the surface */
+  --nl:rgba(255,255,255,.062);     /* light side — a lit edge, not a glow */
+  --n-hi:#2c3039;                  /* lifted: hover */
+  --n-lo:#1a1c22;                  /* sunk: inputs, tracks, carved panels */
   --glass:rgba(38,41,50,.72); --glass-2:rgba(38,41,50,.5); --glass-3:rgba(38,41,50,.85);
   --glass-line:rgba(150,160,190,.14);
   color-scheme: dark;
@@ -777,28 +813,28 @@ nav.tabs{position:static; top:auto}
   background:linear-gradient(104deg,transparent 40%,rgba(255,255,255,.06) 50%,transparent 60%)}
 
 [data-theme="dark"] .btn{background:var(--nbg); border:0; box-shadow:var(--up-sm); color:var(--ink)}
-[data-theme="dark"] .btn:hover{background:#23262e; box-shadow:var(--up); transform:translateY(-1px)}
+[data-theme="dark"] .btn:hover{background:var(--n-hi); box-shadow:var(--up); transform:translateY(-1px)}
 [data-theme="dark"] .btn:active{box-shadow:var(--in-sm); transform:translateY(0) scale(.99)}
 [data-theme="dark"] .btn:disabled{box-shadow:var(--in-sm); opacity:.45; transform:none}
 [data-theme="dark"] .btn.primary{background:#eef0f6; color:#1a1c22;
   box-shadow:4px 4px 10px rgba(0,0,0,.55), -4px -4px 10px var(--nl)}
 [data-theme="dark"] .btn.primary:hover{background:#fff}
-[data-theme="dark"] .btn.accent{background:var(--red); color:#fff;
+[data-theme="dark"] .btn.accent{background:var(--red-fill); color:#fff;
   box-shadow:4px 4px 10px rgba(0,0,0,.5), -4px -4px 10px var(--nl)}
-[data-theme="dark"] .btn.accent:hover{background:#ff6377}
+[data-theme="dark"] .btn.accent:hover{background:#c81f3a}
 [data-theme="dark"] .btn.ghost{background:transparent; box-shadow:none; color:var(--muted)}
-[data-theme="dark"] .btn.ghost:hover{background:#23262e; box-shadow:var(--up-xs); color:var(--ink)}
+[data-theme="dark"] .btn.ghost:hover{background:var(--n-hi); box-shadow:var(--up-xs); color:var(--ink)}
 [data-theme="dark"] .btn.danger{color:var(--red-ink)}
 [data-theme="dark"] .x{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--muted)}
 
 [data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{
-  background:#1b1d23; border:0; box-shadow:var(--in-sm); color:var(--ink)}
+  background:var(--n-lo); border:0; box-shadow:var(--in-sm); color:var(--ink)}
 [data-theme="dark"] input::placeholder,[data-theme="dark"] textarea::placeholder{color:var(--faint)}
 [data-theme="dark"] input:focus,[data-theme="dark"] select:focus,[data-theme="dark"] textarea:focus{
-  background:#1b1d23; box-shadow:var(--in-sm), 0 0 0 2px var(--red-line)}
+  background:var(--n-lo); box-shadow:var(--in-sm), 0 0 0 2px var(--red-line)}
 [data-theme="dark"] .cell input:disabled{box-shadow:none; background:rgba(150,160,190,.06); color:var(--faint)}
 [data-theme="dark"] .cell input.has{box-shadow:var(--in-sm), 0 0 0 2px var(--red-line); color:var(--red-ink)}
-[data-theme="dark"] .photo-drop{background:#1b1d23; border:0; box-shadow:var(--in)}
+[data-theme="dark"] .photo-drop{background:var(--n-lo); border:0; box-shadow:var(--in)}
 
 [data-theme="dark"] .chip{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--muted)}
 [data-theme="dark"] .chip.ink{background:#eef0f6; color:#1a1c22}
@@ -809,7 +845,7 @@ nav.tabs{position:static; top:auto}
 [data-theme="dark"] .pick.on{box-shadow:var(--in-sm); color:var(--red-ink)}
 [data-theme="dark"] .shade{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--ink)}
 [data-theme="dark"] .shade[aria-selected=true]{box-shadow:var(--in-sm); color:var(--red-ink)}
-[data-theme="dark"] .seg,[data-theme="dark"] .modes{background:#1b1d23; box-shadow:var(--in-sm)}
+[data-theme="dark"] .seg,[data-theme="dark"] .modes{background:var(--n-lo); box-shadow:var(--in-sm)}
 [data-theme="dark"] .seg button[aria-selected=true],
 [data-theme="dark"] .modes button[aria-selected=true]{background:var(--nbg); box-shadow:var(--up-xs); color:var(--ink)}
 [data-theme="dark"] .demo-grid button{background:var(--nbg); border:0; box-shadow:var(--up-xs); color:var(--ink-2)}
@@ -818,7 +854,7 @@ nav.tabs{position:static; top:auto}
 
 [data-theme="dark"] .stickytop{background:var(--nbg); box-shadow:0 3px 16px rgba(0,0,0,.5)}
 [data-theme="dark"] .topbar,[data-theme="dark"] nav.tabs{background:transparent; border-bottom:0}
-[data-theme="dark"] nav.tabs button:hover{background:#23262e; box-shadow:var(--up-xs)}
+[data-theme="dark"] nav.tabs button:hover{background:var(--n-hi); box-shadow:var(--up-xs)}
 [data-theme="dark"] nav.tabs button[aria-selected=true]{background:var(--nbg); box-shadow:var(--in-sm)}
 
 [data-theme="dark"] table.data th{background:var(--nbg); border-bottom:0;
@@ -832,10 +868,10 @@ nav.tabs{position:static; top:auto}
 [data-theme="dark"] .mfoot{border-top:1px solid var(--line-2)}
 [data-theme="dark"] #cartbar{background:var(--nbg); border:0; box-shadow:var(--up-lg)}
 [data-theme="dark"] #toast{background:#eef0f6; color:#1a1c22}
-[data-theme="dark"] #toast.bad{background:var(--red); color:#fff}
-[data-theme="dark"] .mix{background:#1b1d23; box-shadow:var(--in-sm)}
-[data-theme="dark"] .warnbox{background:#1b1d23; border:0; box-shadow:var(--in-sm); color:var(--red-ink)}
-[data-theme="dark"] .okbox{background:#1b1d23; border:0; box-shadow:var(--in-sm); color:#4ad991}
+[data-theme="dark"] #toast.bad{background:var(--red-fill); color:#fff}
+[data-theme="dark"] .mix{background:var(--n-lo); box-shadow:var(--in-sm)}
+[data-theme="dark"] .warnbox{background:var(--n-lo); border:0; box-shadow:var(--in-sm); color:var(--red-ink)}
+[data-theme="dark"] .okbox{background:var(--n-lo); border:0; box-shadow:var(--in-sm); color:#4ad991}
 [data-theme="dark"] .ph,[data-theme="dark"] .tph,[data-theme="dark"] .sheet-hero{
   background:linear-gradient(155deg,#2a2d36,#1f222a)}
 [data-theme="dark"] .ph .soldout{background:rgba(20,22,28,.7)}
@@ -868,7 +904,7 @@ nav.tabs{position:static; top:auto}
 .tph img{width:100%;height:100%;object-fit:cover;display:block}
 .tph .noimg{position:absolute; inset:0; display:grid; place-items:center;
   font-family:var(--f-display); font-size:11px; font-weight:800; letter-spacing:.22em;
-  color:rgba(90,98,118,.42)}
+  color:var(--faint)}
 .tph .tchips{position:absolute; top:8px; left:8px; right:8px; display:flex; gap:4px; flex-wrap:wrap}
 .tph .tchips .chip{font-size:9px; padding:3px 7px}
 .tb{padding:10px 11px 12px; display:flex; flex-direction:column; gap:7px; flex:1}
@@ -898,7 +934,7 @@ nav.tabs{position:static; top:auto}
 .sheet-hero img{width:100%;height:100%;object-fit:cover;display:block}
 .sheet-hero .noimg{position:absolute; inset:0; display:grid; place-items:center;
   font-family:var(--f-display); font-size:12px; font-weight:800; letter-spacing:.22em;
-  color:rgba(90,98,118,.42)}
+  color:var(--faint)}
 
 .shades{display:flex; gap:7px; overflow-x:auto; padding:2px 1px 8px; scrollbar-width:none}
 .shades::-webkit-scrollbar{display:none}
@@ -1028,7 +1064,7 @@ nav.tabs{position:static; top:auto}
   background:rgba(12,13,16,.55); color:#fff; font-size:13px; line-height:1; cursor:pointer; z-index:1}
 .pbtn:hover{background:rgba(12,13,16,.8)}
 .pbtn.star{right:auto; left:5px}
-.ptag{position:absolute; left:5px; top:5px; background:var(--red); color:#fff; font-size:8.5px;
+.ptag{position:absolute; left:5px; top:5px; background:var(--red-fill); color:#fff; font-size:8.5px;
   font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:999px}
 .photo-drop.small{aspect-ratio:auto; padding:12px}
 
@@ -1061,7 +1097,7 @@ nav.tabs{position:static; top:auto}
   table.data.stacks td.acts .btn{flex:1; justify-content:center}
 }
 [data-theme="neu"] table.data.stacks tr{background:var(--nbg); border:0; box-shadow:var(--up-xs)}
-[data-theme="dark"] table.data.stacks tr{background:#22252c; border:0; box-shadow:var(--up-xs)}
+[data-theme="dark"] table.data.stacks tr{background:var(--n-hi); border:0; box-shadow:var(--up-xs)}
 
 /* touch: bigger targets, and 16px inputs so iOS doesn't zoom the page on focus */
 @media (pointer:coarse){
@@ -1311,15 +1347,23 @@ const Media = (()=>{
     },
     /** Fetch one photo out of the shared database. */
     async pull(key){
+      if(Media._noTable) return null;           // setup SQL not run yet — stop asking
       if(Media._missing.has(key)) return null;  // don't re-ask for a known gap
       try{
         const rows = await Cloud.rest('photos?select=data&id=eq.' + encodeURIComponent(key));
         const d = rows && rows[0] && rows[0].data;
         if(!d){ Media._missing.add(key); return null; }
         return dataURLToBlob(d);
-      }catch(e){ Media._missing.add(key); return null; }
+      }catch(e){
+        // a missing table is a one-off setup state, not a per-photo problem;
+        // re-asking for every photo on every render just floods the network log
+        if(/public\.photos|schema cache|does not exist/i.test(e.message)) Media._noTable = true;
+        else Media._missing.add(key);
+        return null;
+      }
     },
     _missing:new Set(),
+    _noTable:false,
     /** Put a photo where every device can reach it. */
     async push(key, blob){
       if(!CLOUD) return;
@@ -1694,6 +1738,16 @@ const Cloud = {
   },
 
   /** Sign in with a login ID (W01 / ADMIN) + PIN. */
+  /** The login ID of the signed-in account, read out of the session token so it
+      survives a page reload without another sign-in. */
+  code(){
+    try{
+      const p = JSON.parse(atob(String(Cloud.token).split('.')[1]
+        .replace(/-/g,'+').replace(/_/g,'/')));
+      return String(p.email||'').split('@')[0].toUpperCase();
+    }catch(e){ return ''; }
+  },
+
   async signIn(code, pin){
     const email = String(code).trim().toLowerCase() + LOGIN_DOMAIN;
     const r = await fetch(DB_URL + '/auth/v1/token?grant_type=password', {
@@ -1711,6 +1765,17 @@ const Cloud = {
     }
     Cloud.saveSession(j);
     return j;
+  },
+
+  /** Check a login ID and PIN without disturbing the signed-in session.
+      Used to confirm somebody knows their current PIN before changing it. */
+  async verify(code, pin){
+    const r = await fetch(DB_URL + '/auth/v1/token?grant_type=password', {
+      method:'POST', headers:{'apikey':DB_KEY, 'Content-Type':'application/json'},
+      body: JSON.stringify({email:String(code).trim().toLowerCase()+LOGIN_DOMAIN, password:pin})
+    });
+    if(!r.ok) throw new Error('not verified');
+    return true;
   },
 
   /** Change something about your own account — today only the password. The
@@ -4836,14 +4901,22 @@ const Logins = {
     catch(e){ Logins.rows = null; Logins.err = e.message; }
   },
 
-  /** Change your own PIN. The database verifies the session, not the old PIN,
-      so we ask for it twice instead — a typo here locks you out. */
+  /** Change your own PIN.
+      The current PIN is required. The database itself does not demand it — a
+      valid session is enough — but without that step anything holding an open
+      session could silently change the password and lock the real owner out.
+      Asking for it also catches the case where somebody walked up to an
+      unattended screen. The new PIN is typed twice, because a typo here locks
+      you out of your own account. */
   ownPin(){
     Modal.show({
       title:'Change your PIN', sub:'You will use the new PIN the next time you sign in',
-      body:`<label class="fl"><span>New PIN — at least 6 characters</span>
+      body:`<label class="fl"><span>Your current PIN</span>
+              <input id="p0" type="password" autocomplete="current-password"></label>
+            <div class="hr"></div>
+            <label class="fl"><span>New PIN — at least 6 characters</span>
               <input id="p1" type="password" autocomplete="new-password"></label>
-            <label class="fl"><span>Type it again</span>
+            <label class="fl"><span>Type the new PIN again</span>
               <input id="p2" type="password" autocomplete="new-password"></label>
             <div class="err" id="perr" role="alert" aria-live="assertive"></div>`,
       foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
@@ -4851,17 +4924,24 @@ const Logins = {
     });
   },
   async saveOwnPin(){
+    const cur = $('#p0').value || '';
     const a = $('#p1').value || '', b = $('#p2').value || '', err = $('#perr');
-    if(a.length < 6){ err.textContent = 'Use at least 6 characters.'; return; }
-    if(a !== b){ err.textContent = 'The two PINs do not match.'; return; }
+    if(!cur){ err.textContent = 'Enter your current PIN first.'; return; }
+    if(a.length < 6){ err.textContent = 'The new PIN needs at least 6 characters.'; return; }
+    if(a !== b){ err.textContent = 'The two new PINs do not match.'; return; }
+    if(a === cur){ err.textContent = 'That is already your PIN — choose a different one.'; return; }
     const btn = $('#pgo'); btn.disabled = true; btn.textContent = 'Changing…';
     try{
+      // prove the current PIN before changing anything
+      const code = Cloud.code();
+      if(!code) throw new Error('Could not confirm which account you are signed in as');
+      try{ await Cloud.verify(code, cur); }
+      catch(e){ throw new Error('That is not your current PIN.'); }
       await Cloud.updateSelf({password:a});
       Modal.close();
       toast('PIN changed — use the new one next time you sign in');
     }catch(e){
-      err.textContent = /same/i.test(e.message)
-        ? 'That is already your PIN — choose a different one.' : e.message;
+      err.textContent = e.message;
       btn.disabled = false; btn.textContent = 'Change PIN';
     }
   },
@@ -5037,6 +5117,7 @@ const Preview = {
     const a = await Preview.audit();
     if(a.err){ toast(a.err, true); return; }
     if(!a.local.length){ toast('Every photo is already shared'); return; }
+    Media._noTable = false;                     // the table may have just been created
     let done = 0, missing = 0;
     toast('Uploading ' + a.local.length + ' photo' + (a.local.length===1?'':'s') + '…');
     for(const k of a.local){
@@ -6014,7 +6095,7 @@ const Theme = {
       if(explicit) localStorage.setItem('ckl_theme_set', '1');
     }catch(e){}
     const meta = document.querySelector('meta[name=theme-color]');
-    if(meta) meta.setAttribute('content', t === 'dark' ? '#1e2027' : '#e9ebf1');
+    if(meta) meta.setAttribute('content', t === 'dark' ? '#24272f' : '#e9ebf1');
     Theme.paint();
   },
   /* A segmented Light | Dark control. It shows which theme is ON, rather than
