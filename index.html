@@ -356,6 +356,24 @@ table.mx td.lbl{font-size:11.5px; color:var(--ink-2); white-space:nowrap; paddin
 .csave[data-s="saved"]{color:#12a05e}
 .csave[data-s="failed"]{color:var(--red)}
 
+/* ---- preview banner: unmistakable, because you are wearing someone else's
+   account and every rate on screen is theirs, not yours ---- */
+#pvbar{position:fixed; left:0; right:0; top:0; z-index:120; display:flex; align-items:center;
+  gap:12px; padding:9px clamp(12px,3vw,22px); background:var(--red); color:#fff;
+  box-shadow:0 4px 18px rgba(0,0,0,.22)}
+#pvbar .pvtxt{flex:1; min-width:0; font-size:12.5px; line-height:1.3}
+#pvbar .pvtxt b{font-family:var(--f-mono); letter-spacing:.02em}
+#pvbar .pvname{opacity:.82; margin-left:7px}
+#pvbar .btn{flex:none; background:rgba(255,255,255,.16); color:#fff; border:0; box-shadow:none}
+#pvbar .btn:hover{background:rgba(255,255,255,.28); color:#fff}
+#pvbar .pvdot{width:7px; height:7px; border-radius:50%; background:#fff; flex:none;
+  animation:pvpulse 1.9s var(--e) infinite}
+@keyframes pvpulse{0%,100%{opacity:1} 50%{opacity:.35}}
+/* the banner is fixed at the top, so the sticky header moves down to clear it */
+body:has(#pvbar) .stickytop{top:40px}
+body:has(#pvbar) #app{padding-top:40px}
+@media (prefers-reduced-motion:reduce){ #pvbar .pvdot{animation:none} }
+
 /* review-screen actions: Clear is a restrained ghost, far from Place order */
 .padactions{display:flex; gap:9px; align-items:center; margin-top:6px; flex-wrap:wrap}
 @media (max-width:560px){
@@ -989,6 +1007,18 @@ nav.tabs{position:static; top:auto}
 .boxpick .pill-list{gap:5px}
 .boxpick .boxrow input{width:74px; text-align:center}
 
+/* photo thumbnail in an admin table row */
+.rowpic{width:52px; height:52px; border-radius:9px; overflow:hidden; flex:none;
+  background:rgba(120,130,155,.12); display:grid; place-items:center}
+.rowpic img{width:100%; height:100%; object-fit:cover; display:block}
+.rowpic.has{cursor:zoom-in}
+.rowpic span{font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);
+  font-weight:700}
+@media (max-width:760px){
+  table.data.stacks td[data-l="Photo"]{padding-bottom:9px}
+  .rowpic{width:72px; height:72px}
+}
+
 /* admin photo gallery */
 .pgal{display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-bottom:8px}
 .pthumb{position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden;
@@ -1257,16 +1287,50 @@ const Media = (()=>{
       const s = await tx('readwrite'); s.delete(key);
       if(urls.has(key)){ URL.revokeObjectURL(urls.get(key)); urls.delete(key); }
     },
+    /**
+     * A photo's bytes, from this device if we have them, otherwise from the
+     * shared database. IndexedDB is only a cache here — the master copy lives
+     * in the `photos` table, which is what lets a wholesaler on a phone see a
+     * photo the office uploaded from a laptop.
+     */
     async url(key){
       if(!key) return null;
       if(urls.has(key)) return urls.get(key);
+      let blob = null;
       try{
         const s = await tx('readonly');
-        const blob = await new Promise((res,rej)=>{ const r = s.get(key);
+        blob = await new Promise((res,rej)=>{ const r = s.get(key);
           r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
-        if(!blob) return null;
-        const u = URL.createObjectURL(blob); urls.set(key,u); return u;
-      }catch(e){ return null; }
+      }catch(e){}
+      if(!blob && CLOUD){
+        blob = await Media.pull(key);           // first time on this device
+        if(blob){ try{ const s = await tx('readwrite'); s.put(blob, key); }catch(e){} }
+      }
+      if(!blob) return null;
+      const u = URL.createObjectURL(blob); urls.set(key,u); return u;
+    },
+    /** Fetch one photo out of the shared database. */
+    async pull(key){
+      if(Media._missing.has(key)) return null;  // don't re-ask for a known gap
+      try{
+        const rows = await Cloud.rest('photos?select=data&id=eq.' + encodeURIComponent(key));
+        const d = rows && rows[0] && rows[0].data;
+        if(!d){ Media._missing.add(key); return null; }
+        return dataURLToBlob(d);
+      }catch(e){ Media._missing.add(key); return null; }
+    },
+    _missing:new Set(),
+    /** Put a photo where every device can reach it. */
+    async push(key, blob){
+      if(!CLOUD) return;
+      const d = await new Promise(res=>{ const r = new FileReader();
+        r.onload = () => res(r.result); r.onerror = () => res(null);
+        r.readAsDataURL(blob); });
+      if(!d) throw new Error('Could not read that image');
+      await Cloud.rest('photos', {method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'},
+        body:[{id:key, data:d, bytes:d.length}]});
+      Media._missing.delete(key);
     },
     async all(){ // for backup: key -> dataURL
       const s = await tx('readonly');
@@ -1649,6 +1713,20 @@ const Cloud = {
     return j;
   },
 
+  /** Change something about your own account — today only the password. The
+      database checks the session, so no old PIN is needed and none is sent. */
+  async updateSelf(patch){
+    const r = await fetch(DB_URL + '/auth/v1/user', {
+      method:'PUT',
+      headers:{'apikey':DB_KEY, 'Authorization':'Bearer '+Cloud.token,
+               'Content-Type':'application/json'},
+      body: JSON.stringify(patch)
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.msg || j.error_description || j.error || 'Could not save that change');
+    return j;
+  },
+
   async signOut(){
     try{
       await fetch(DB_URL + '/auth/v1/logout', {method:'POST',
@@ -1753,9 +1831,10 @@ const Cloud = {
 
   /** Load everything this account is allowed to see. */
   async loadAll(){
-    const me = await Cloud.rest('app_users?select=role,wholesaler_id');
+    // RLS narrows this to the caller's own row, so id here IS the signed-in uid
+    const me = await Cloud.rest('app_users?select=id,role,wholesaler_id');
     if(!me || !me.length) throw new Error('This account is not set up. Call the office.');
-    Cloud.role = me[0].role; Cloud.partyId = me[0].wholesaler_id;
+    Cloud.role = me[0].role; Cloud.partyId = me[0].wholesaler_id; Cloud.uid = me[0].id;
 
     const [arts, boxes, parties, orders, setts] = await Promise.all([
       Cloud.rest('articles?select=*&order=code'),
@@ -2104,7 +2183,9 @@ const TABS_A = [
   {id:'parties',  label:'Wholesalers'},
   {id:'articles', label:'Articles'},
   {id:'boxes',    label:'Box types'},
-  {id:'backup',   label:'Backup'}
+  {id:'preview',  label:'Preview'},
+  {id:'logins',   label:'Logins'},
+  {id:'backup',   label:'Excel & backup'}
 ];
 
 const Nav = {
@@ -2313,6 +2394,9 @@ const Cart = {
   save(){
     if(Cart._skipSave) return;
     if(!SESSION || SESSION.role !== 'wholesaler') return;
+    // A preview borrows the party's identity. Writing here would overwrite the
+    // real buyer's saved order with whatever the office typed while looking.
+    if(SESSION._preview) return;
     Cart.mark('saving');
     clearTimeout(Cart.saveTimer);
     Cart.saveTimer = setTimeout(()=>{
@@ -2336,6 +2420,7 @@ const Cart = {
       from in here would be stomped by the sign-in toast a moment later. */
   restore(){
     if(!SESSION || SESSION.role !== 'wholesaler') return null;
+    if(SESSION._preview) return null;      // never surface a buyer's private draft
     let saved = null;
     try{ saved = JSON.parse(localStorage.getItem(Cart.KEY()) || 'null'); }catch(e){}
     if(!saved || !saved.data) return null;
@@ -2441,6 +2526,12 @@ const Cart = {
   },
 
   async place(){
+    // Preview is for looking, not buying. Placing here would create a real
+    // order in a wholesaler's name that they never agreed to.
+    if(Preview.on){
+      toast('You are previewing the buyer view — orders cannot be placed from here', true);
+      return;
+    }
     if(CLOUD) return Cart.placeCloud();               // shared database
     if(STANDALONE) return Cart.placeLocal();          // fully-local order path
     const t = Cart.totals();
@@ -4481,9 +4572,12 @@ Views.articles = function(v){
     <div class="glass tbl-wrap rv">
       ${!DB.articles.length ? `<div class="empty"><h4>No articles</h4><p>Add your first style.</p></div>` :
       `<div class="tbl-scroll"><table class="data stacks">
-        <thead><tr><th>Code</th><th>Article</th><th>Fabric</th><th class="n">Rate</th><th class="n">MOQ</th>
+        <thead><tr><th>Photo</th><th>Code</th><th>Article</th><th>Fabric</th><th class="n">Rate</th><th class="n">MOQ</th>
           <th>Mode</th><th>Availability</th><th>Access</th><th></th></tr></thead>
         <tbody>${DB.articles.map(a=>`<tr>
+          <td data-l="Photo"><div class="rowpic" id="rp_${a.id}" data-pv="${a.id}"
+            ${(a.photoIds||[]).length?'title="Click to view"':''}>${(a.photoIds||[]).length
+              ? '' : '<span>none</span>'}</div></td>
           <td class="mono" data-l="Style"><b>${esc(a.code)}</b></td>
           <td data-l="Article">${esc(a.name)} ${a.active===false?'<span class="chip">Off</span>':''}
             <div class="tiny muted">${a.colours.length} shades · ${a.sizes.length} sizes</div></td>
@@ -4499,7 +4593,17 @@ Views.articles = function(v){
                 : '<span class="chip">Common</span>'}</td>
           <td class="acts" style="text-align:right"><button class="btn xs" onclick="ArtForm.open('${a.id}')">Edit</button></td>
         </tr>`).join('')}</tbody></table></div>`}
-    </div>`;
+    </div>
+    <p class="tiny muted rv" style="margin:10px 0 0">Photos are shared with every wholesaler.
+      Check <b>Preview</b> to confirm what they can actually see.</p>`;
+  // thumbnails load after the table, from this device or the shared database
+  DB.articles.forEach(async a=>{
+    const k = (a.photoIds||[])[0]; if(!k) return;
+    const u = await Media.url(k); const box = $('#rp_'+a.id);
+    if(!u || !box) return;
+    box.innerHTML = `<img src="${u}" alt="${esc(a.name)}" decoding="async">`;
+    box.classList.add('has');
+  });
 };
 
 const ArtForm = {
@@ -4681,19 +4785,29 @@ const ArtForm = {
       rec.stock = fresh;
     } else rec.stock = {};
 
-    // photos: apply removals, store new ones, keep the arranged order
-    for(const k of ArtForm.removed){ try{ await Media.del(k); }catch(e){} }
+    // photos: apply removals, store new ones, keep the arranged order.
+    // Each new photo goes to the shared database as well as this device — a
+    // photo only on one laptop is a photo no wholesaler will ever see.
+    for(const k of ArtForm.removed){
+      try{ await Media.del(k); }catch(e){}
+      if(CLOUD) try{ await Cloud.rest('photos?id=eq.'+encodeURIComponent(k), {method:'DELETE'}); }catch(e){}
+    }
+    let photoFail = '';
     for(const g of ArtForm.gallery){
       if(g.key){ rec.photoIds.push(g.key); continue; }
       const key = uid('ph');
       await Media.put(key, g.blob);
+      try{ await Media.push(key, g.blob); }
+      catch(e){ photoFail = e.message; }        // reported, never silent
       rec.photoIds.push(key);
     }
 
     if(id) Object.assign(article(id), rec); else DB.articles.push(rec);
     Store.save(); Sync.push('upsertArticle', {article:rec});
     ArtForm.gallery = []; ArtForm.removed = [];
-    Modal.close(); Nav.refresh(); toast('Article saved');
+    Modal.close(); Nav.refresh();
+    if(photoFail) toast('Article saved, but the photo did not upload: ' + photoFail, true);
+    else toast('Article saved');
   },
   async del(id){
     const a = article(id);
@@ -4705,6 +4819,300 @@ const ArtForm = {
     Store.save(); Sync.push('upsertArticle', {article:{id, _delete:true}});
     Modal.close(); Nav.refresh(); toast('Article deleted');
   }
+};
+
+/* ============================================================================
+   LOGINS — change a login ID, change your own PIN, reset somebody else's.
+
+   Passwords are stored by the database as one-way hashes: nothing here, and
+   nobody at all, can read an existing PIN back. They can only be replaced.
+   ========================================================================== */
+const Logins = {
+  rows:null, err:null,
+
+  async load(){
+    Logins.err = null;
+    try{ Logins.rows = await Cloud.rpc('list_logins', {}); }
+    catch(e){ Logins.rows = null; Logins.err = e.message; }
+  },
+
+  /** Change your own PIN. The database verifies the session, not the old PIN,
+      so we ask for it twice instead — a typo here locks you out. */
+  ownPin(){
+    Modal.show({
+      title:'Change your PIN', sub:'You will use the new PIN the next time you sign in',
+      body:`<label class="fl"><span>New PIN — at least 6 characters</span>
+              <input id="p1" type="password" autocomplete="new-password"></label>
+            <label class="fl"><span>Type it again</span>
+              <input id="p2" type="password" autocomplete="new-password"></label>
+            <div class="err" id="perr" role="alert" aria-live="assertive"></div>`,
+      foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
+            <button class="btn accent" id="pgo" onclick="Logins.saveOwnPin()">Change PIN</button>`
+    });
+  },
+  async saveOwnPin(){
+    const a = $('#p1').value || '', b = $('#p2').value || '', err = $('#perr');
+    if(a.length < 6){ err.textContent = 'Use at least 6 characters.'; return; }
+    if(a !== b){ err.textContent = 'The two PINs do not match.'; return; }
+    const btn = $('#pgo'); btn.disabled = true; btn.textContent = 'Changing…';
+    try{
+      await Cloud.updateSelf({password:a});
+      Modal.close();
+      toast('PIN changed — use the new one next time you sign in');
+    }catch(e){
+      err.textContent = /same/i.test(e.message)
+        ? 'That is already your PIN — choose a different one.' : e.message;
+      btn.disabled = false; btn.textContent = 'Change PIN';
+    }
+  },
+
+  /** Change any account's login ID — the code typed on the sign-in screen. */
+  editId(uid, code){
+    Modal.show({
+      title:'Change login ID', sub:`Currently ${code}`,
+      body:`<label class="fl"><span>New login ID</span>
+              <input id="lid" value="${esc(code)}" autocapitalize="characters" spellcheck="false"
+                     style="text-transform:uppercase" maxlength="12"></label>
+            <p class="tiny muted" style="margin:0 0 4px">2 to 12 letters or numbers.
+              ${uid === (Cloud.uid||'') ? '<b>This is your own account</b> — you stay signed in, but you must type the new ID next time.' : 'Tell the wholesaler their new ID.'}</p>
+            <div class="err" id="ierr" role="alert" aria-live="assertive"></div>`,
+      foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
+            <button class="btn accent" id="igo"
+              onclick="Logins.saveId('${esc(uid)}')">Change login ID</button>`
+    });
+  },
+  async saveId(uid){
+    const v = ($('#lid').value||'').trim().toUpperCase(), err = $('#ierr');
+    if(!/^[A-Z0-9]{2,12}$/.test(v)){
+      err.textContent = 'Use 2 to 12 letters or numbers, nothing else.'; return; }
+    const btn = $('#igo'); btn.disabled = true; btn.textContent = 'Changing…';
+    try{
+      await Cloud.rpc('change_login_id', {p_user:uid, p_new_code:v});
+      Modal.close(); await Logins.load(); Nav.refresh();
+      toast('Login ID is now ' + v);
+    }catch(e){ err.textContent = e.message; btn.disabled = false; btn.textContent = 'Change login ID'; }
+  },
+
+  /** Reset somebody else's PIN, because nobody can read the old one. */
+  resetPin(uid, code){
+    Modal.show({
+      title:'Reset PIN', sub:`For ${code}`,
+      body:`<label class="fl"><span>New PIN — at least 6 characters</span>
+              <input id="r1" autocomplete="off" spellcheck="false"></label>
+            <p class="tiny muted" style="margin:0 0 4px">Write it down before you save — it cannot
+              be read back afterwards. Pass it to ${esc(code)} yourself.</p>
+            <div class="err" id="rerr" role="alert" aria-live="assertive"></div>`,
+      foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
+            <button class="btn accent" id="rgo" onclick="Logins.saveResetPin('${esc(uid)}')">Set PIN</button>`
+    });
+  },
+  async saveResetPin(uid){
+    const v = $('#r1').value || '', err = $('#rerr');
+    if(v.length < 6){ err.textContent = 'Use at least 6 characters.'; return; }
+    const btn = $('#rgo'); btn.disabled = true; btn.textContent = 'Saving…';
+    try{
+      await Cloud.rpc('set_login_pin', {p_user:uid, p_pin:v});
+      Modal.close(); toast('PIN reset — give it to them directly, not by message');
+    }catch(e){ err.textContent = e.message; btn.disabled = false; btn.textContent = 'Set PIN'; }
+  }
+};
+
+Views.logins = function(v){
+  v.innerHTML = `
+    <div class="head"><div><h2>Logins</h2>
+      <p>Who can sign in, and what they type. PINs are stored scrambled — they can
+         be replaced but never read back, not even here.</p></div>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn sm" onclick="Logins.ownPin()">Change my PIN</button></div>
+    <div id="lgBody"><div class="glass empty rv"><h4>Loading…</h4></div></div>`;
+
+  Logins.load().then(()=>{
+    const box = $('#lgBody'); if(!box) return;
+    if(Logins.err){
+      const missing = /list_logins|does not exist|schema/i.test(Logins.err);
+      box.innerHTML = `<div class="glass rv" style="padding:18px 20px">
+        <div class="warnbox" style="margin:0 0 12px">${esc(Logins.err)}</div>
+        ${missing ? `<p style="margin:0 0 8px">Login management needs one setup step that only you
+            can run, because it changes the database itself.</p>
+          <ol class="tiny muted" style="margin:0; padding-left:18px; line-height:1.9">
+            <li>Open your Supabase project → <b>SQL Editor</b></li>
+            <li>Paste the contents of <span class="mono">db/supabase_photos_and_logins.sql</span></li>
+            <li>Press <b>Run</b>, then come back here</li>
+          </ol>
+          <p class="tiny muted" style="margin:10px 0 0">The same file also switches on shared
+            product photos. You can still change your own PIN above without it.</p>`
+        : ''}</div>`;
+      return;
+    }
+    const rows = Logins.rows || [];
+    box.innerHTML = `<div class="glass tbl-wrap rv"><div class="tbl-scroll">
+      <table class="data stacks">
+        <thead><tr><th>Login ID</th><th>Role</th><th>Party</th><th>Last signed in</th><th></th></tr></thead>
+        <tbody>${rows.map(r=>{
+          const w = r.wholesaler_id ? party(r.wholesaler_id) : null;
+          const me = r.id === Cloud.uid;
+          return `<tr>
+            <td class="mono" data-l="Login ID"><b>${esc(r.code)}</b>${me?' <span class="chip">You</span>':''}</td>
+            <td data-l="Role"><span class="chip ${r.role==='ADMIN'?'red':''}">${esc(r.role)}</span></td>
+            <td data-l="Party">${w ? esc(w.name) : '<span class="muted">Office</span>'}</td>
+            <td data-l="Last signed in" class="tiny muted">${r.last_sign_in
+              ? fmtDateTime(r.last_sign_in) : 'never'}</td>
+            <td class="acts" style="text-align:right; white-space:nowrap">
+              <button class="btn xs" onclick="Logins.editId('${r.id}','${esc(r.code)}')">Change ID</button>
+              <button class="btn xs" onclick="Logins.resetPin('${r.id}','${esc(r.code)}')">Reset PIN</button>
+            </td></tr>`;
+        }).join('')}</tbody></table></div></div>
+      <p class="tiny muted rv" style="margin:11px 0 0">A new PIN takes effect immediately.
+        Anyone already signed in stays signed in until they sign out.</p>`;
+  });
+};
+
+/* ============================================================================
+   PREVIEW — see the catalogue exactly as one wholesaler sees it.
+
+   This is a real session swap, not a mock-up: the buyer screens read the live
+   session, so the office desk sees the same net rates, the same exclusive
+   styles and the same photos that party gets. Placing an order is blocked
+   throughout, and a banner makes it obvious you are not looking at your own
+   account.
+   ========================================================================== */
+const Preview = {
+  on:false, saved:null, party:null,
+
+  enter(pid){
+    const w = party(pid); if(!w){ toast('Pick a wholesaler first', true); return; }
+    if(Preview.on) Preview.exit(true);
+    Preview.saved = SESSION;
+    Preview.party = pid;
+    Preview.on = true;
+    SESSION = {role:'wholesaler', partyId:pid, _preview:true};
+    Cart.clear(true);                     // never carry a draft into a preview
+    $('#roleLbl').textContent = 'Preview';
+    $('#whoName').textContent = w.name;
+    $('#whoSub').textContent  = [w.code, w.city, (num(w.discount)||0)+'% off']
+                                  .filter(Boolean).join(' · ');
+    Preview.banner();
+    Nav.build();
+  },
+
+  exit(quiet){
+    if(!Preview.on) return;
+    SESSION = Preview.saved;
+    Preview.on = false; Preview.saved = null;
+    Cart.clear(true);
+    const b = $('#pvbar'); if(b) b.remove();
+    $('#roleLbl').textContent = 'Office Desk';
+    $('#whoName').textContent = 'Office / Admin';
+    $('#whoSub').textContent  = (DB.settings.company || 'CKL') + ' · shared database';
+    Nav.build();
+    if(!quiet) Nav.go('preview');
+  },
+
+  banner(){
+    const w = party(Preview.party) || {};
+    let b = $('#pvbar');
+    if(!b){ b = document.createElement('div'); b.id = 'pvbar'; document.body.appendChild(b); }
+    b.innerHTML =
+      `<span class="pvdot"></span>
+       <div class="pvtxt">Previewing as <b>${esc(w.code||'')}</b>
+         <span class="pvname">${esc(w.name||'')}</span></div>
+       <button class="btn sm" onclick="Preview.exit()">Back to office</button>`;
+  },
+
+  /** How many photos exist only on this device and have never been uploaded. */
+  async audit(){
+    const ids = [];
+    DB.articles.forEach(a=>(a.photoIds||[]).forEach(k=>{ if(ids.indexOf(k)<0) ids.push(k); }));
+    if(!ids.length || !CLOUD) return {total:ids.length, shared:0, local:ids.length ? ids : []};
+    let shared = [];
+    try{
+      const rows = await Cloud.rest('photos?select=id&limit=1000');
+      shared = (rows||[]).map(r=>r.id);
+    }catch(e){ return {total:ids.length, shared:null, local:[], err:e.message}; }
+    return {total:ids.length, shared:shared.length, local:ids.filter(k=>shared.indexOf(k)<0)};
+  },
+
+  /** Push this device's photos up so every other device can see them. */
+  async upload(){
+    const a = await Preview.audit();
+    if(a.err){ toast(a.err, true); return; }
+    if(!a.local.length){ toast('Every photo is already shared'); return; }
+    let done = 0, missing = 0;
+    toast('Uploading ' + a.local.length + ' photo' + (a.local.length===1?'':'s') + '…');
+    for(const k of a.local){
+      const u = await Media.url(k);
+      if(!u){ missing++; continue; }                 // not on this device either
+      try{
+        const blob = await (await fetch(u)).blob();
+        await Media.push(k, blob); done++;
+      }catch(e){ missing++; }
+    }
+    Nav.refresh();
+    toast(done
+      ? `${done} photo${done===1?'':'s'} uploaded`
+        + (missing ? ` · ${missing} not on this device` : '')
+      : `Nothing uploaded — those ${missing} photo${missing===1?'':'s'} are not on this computer`,
+      !!missing);
+  }
+};
+
+Views.preview = function(v){
+  const list = DB.wholesalers.filter(w=>w.id!=='self');
+  v.innerHTML = `
+    <div class="head"><div><h2>Preview</h2>
+      <p>Open the catalogue as one of your wholesalers sees it — their rates,
+         their styles, their photos. Orders cannot be placed from a preview.</p></div></div>
+    <div class="glass rv" id="pvPhotos" style="padding:16px 18px; margin-bottom:14px">
+      <div class="eyebrow">Product photos</div>
+      <p class="tiny muted" style="margin:6px 0 0">Checking…</p></div>
+    <div class="cards" id="pvList"></div>`;
+
+  $('#pvList').innerHTML = list.length ? list.map(w=>{
+    const seen = DB.articles.filter(a => a.active!==false &&
+      (a.visibility==='common' || (a.parties||[]).includes(w.id))).length;
+    return `<div class="glass sg-art rv">
+      <div class="sg-head"><div><h4>${esc(w.name)}</h4>
+        <div class="tiny muted mono">${esc(w.code)}${w.city?' · '+esc(w.city):''}</div></div>
+        <div class="spacer" style="flex:1"></div>
+        <span class="chip">${num(w.discount)}% off</span></div>
+      <div class="tiny muted">${seen} style${seen===1?'':'s'} visible to this party</div>
+      <div style="margin-top:13px">
+        <button class="btn accent sm" onclick="Preview.enter('${w.id}')">Open their catalogue</button>
+      </div></div>`;
+  }).join('') : `<div class="glass empty rv" style="grid-column:1/-1">
+      <h4>No wholesalers yet</h4><p>Add a party first, then you can preview what they see.</p></div>`;
+
+  // photo sharing status, filled in once the database answers
+  Preview.audit().then(a=>{
+    const box = $('#pvPhotos'); if(!box) return;
+    if(a.err){
+      box.innerHTML = `<div class="eyebrow">Product photos</div>
+        <p class="tiny" style="margin:6px 0 0; color:var(--red)">Could not check: ${esc(a.err)}.
+          If this says the photos table is missing, run
+          <span class="mono">db/supabase_photos_and_logins.sql</span> in Supabase once.</p>`;
+      return;
+    }
+    if(!a.total){
+      box.innerHTML = `<div class="eyebrow">Product photos</div>
+        <p class="tiny muted" style="margin:6px 0 0">No photos on any article yet.
+          Add them from Articles and they will appear here.</p>`;
+      return;
+    }
+    const ok = !a.local.length;
+    box.innerHTML = `<div class="eyebrow">Product photos</div>
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:7px">
+        <div style="flex:1; min-width:200px">
+          <div style="font-size:13.5px; font-weight:600">
+            ${a.shared} of ${a.total} photo${a.total===1?'':'s'} shared</div>
+          <p class="tiny muted" style="margin:3px 0 0">${ok
+            ? 'Every wholesaler can see your product photos.'
+            : `${a.local.length} photo${a.local.length===1?' is':'s are'} still only on one computer —
+               wholesalers see a placeholder instead.`}</p>
+        </div>
+        ${ok ? '<span class="chip ok">All shared</span>'
+             : `<button class="btn accent sm" onclick="Preview.upload()">Upload them now</button>`}
+      </div>`;
+  });
 };
 
 /* -------------------------------------------------------------------- BOXES */
@@ -4840,6 +5248,23 @@ Views.backup = function(v){
     </div>
 
     <div class="glass sg-art rv" style="margin-bottom:14px">
+      <h4 style="margin-bottom:6px">Excel</h4>
+      <p class="tiny muted" style="margin:0 0 13px">Download the whole business as a workbook, or
+        upload a filled-in sheet to update stock and styles in bulk. Uploads are always shown to
+        you first — nothing changes until you say so.</p>
+      <div style="display:flex; gap:9px; flex-wrap:wrap; align-items:center">
+        <button class="btn accent" onclick="Excel.download()">Download Excel</button>
+        <button class="btn" onclick="document.getElementById('xlfile').click()">Upload Excel or CSV</button>
+        <button class="btn ghost" onclick="Excel.template()">Get the blank template</button>
+        <input type="file" id="xlfile" accept=".xlsx,.csv,.txt" style="display:none"
+               onchange="Excel.pick(this)">
+      </div>
+      <p class="tiny muted" style="margin:12px 0 0">The workbook has six sheets: order lines,
+        orders, styles, stock, wholesalers and box types. To update stock, edit the
+        <b>Qty</b> column on the Stock sheet and upload the file back.</p>
+    </div>
+
+    <div class="glass sg-art rv" style="margin-bottom:14px">
       <h4 style="margin-bottom:6px">Branding</h4>
       <p class="tiny muted" style="margin:0 0 13px">The built-in mark is a vector redraw. For a
         pixel-exact logo, upload your real file (PNG with a transparent background looks best) —
@@ -4947,6 +5372,454 @@ function dl(text, name, mime){
 }
 const q = s => { s = String(s==null?'':s); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
 const toCSV = rows => '﻿' + rows.map(r=>r.map(q).join(',')).join('\r\n');
+
+/* ============================================================================
+   EXCEL — read and write real .xlsx workbooks, with no library.
+
+   An .xlsx is a ZIP of XML files. Writing one only needs a ZIP writer with no
+   compression (perfectly legal, and Excel opens it happily). Reading one needs
+   to inflate the entries, which every current browser can do natively through
+   DecompressionStream. CSV is accepted too, since that is what a lot of people
+   reach for first.
+   ========================================================================== */
+const XL = (()=>{
+  /* ---- ZIP plumbing ---- */
+  const CRC = (()=>{ const t = new Uint32Array(256);
+    for(let i=0;i<256;i++){ let c=i; for(let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[i]=c>>>0; }
+    return t; })();
+  function crc32(u8){ let c = 0xFFFFFFFF;
+    for(let i=0;i<u8.length;i++) c = CRC[(c ^ u8[i]) & 0xFF] ^ (c>>>8);
+    return (c ^ 0xFFFFFFFF) >>> 0; }
+  const enc = s => new TextEncoder().encode(s);
+
+  /** Build a ZIP with stored (uncompressed) entries. */
+  function zip(files){
+    const parts = [], dir = []; let off = 0;
+    const u16 = n => [n & 255, (n>>>8) & 255];
+    const u32 = n => [n & 255, (n>>>8) & 255, (n>>>16) & 255, (n>>>24) & 255];
+    files.forEach(f=>{
+      const name = enc(f.name), body = f.data, c = crc32(body);
+      const local = [].concat([80,75,3,4], u16(20), u16(0), u16(0), u16(0), u16(0),
+        u32(c), u32(body.length), u32(body.length), u16(name.length), u16(0));
+      parts.push(new Uint8Array(local), name, body);
+      dir.push([].concat([80,75,1,2], u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+        u32(c), u32(body.length), u32(body.length), u16(name.length),
+        u16(0), u16(0), u16(0), u16(0), u32(0), u32(off)), name);
+      off += local.length + name.length + body.length;
+    });
+    const cd = []; let cdLen = 0;
+    for(let i=0;i<dir.length;i+=2){
+      const h = new Uint8Array(dir[i]); cd.push(h, dir[i+1]);
+      cdLen += h.length + dir[i+1].length;
+    }
+    const end = new Uint8Array([].concat([80,75,5,6], u16(0), u16(0),
+      u16(files.length), u16(files.length), u32(cdLen), u32(off), u16(0)));
+    return new Blob([...parts, ...cd, end], {type:
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  }
+
+  /** Pull the entries out of a ZIP, inflating anything that is deflated. */
+  async function unzip(buf){
+    const dv = new DataView(buf), u8 = new Uint8Array(buf);
+    // find the end-of-central-directory record, scanning back over any comment
+    let eo = -1;
+    for(let i = u8.length - 22; i >= 0 && i > u8.length - 65558; i--)
+      if(dv.getUint32(i, true) === 0x06054b50){ eo = i; break; }
+    if(eo < 0) throw new Error('That file is not a valid Excel workbook');
+    const n = dv.getUint16(eo+10, true); let p = dv.getUint32(eo+16, true);
+    const out = {};
+    for(let i=0;i<n;i++){
+      if(dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p+10, true);
+      const csize  = dv.getUint32(p+20, true);
+      const nlen   = dv.getUint16(p+28, true);
+      const elen   = dv.getUint16(p+30, true);
+      const clen   = dv.getUint16(p+32, true);
+      const lho    = dv.getUint32(p+42, true);
+      const name   = new TextDecoder().decode(u8.subarray(p+46, p+46+nlen));
+      // the local header repeats the name and extra field with its own lengths
+      const lnlen = dv.getUint16(lho+26, true), lelen = dv.getUint16(lho+28, true);
+      const start = lho + 30 + lnlen + lelen;
+      const raw = u8.subarray(start, start + csize);
+      if(method === 0) out[name] = raw;
+      else if(method === 8){
+        const ds = new DecompressionStream('deflate-raw');
+        const ab = await new Response(new Blob([raw]).stream().pipeThrough(ds)).arrayBuffer();
+        out[name] = new Uint8Array(ab);
+      }
+      p += 46 + nlen + elen + clen;
+    }
+    return out;
+  }
+
+  /* ---- sheet XML ---- */
+  const xesc = s => String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');      // Excel rejects these outright
+  function colName(i){ let s=''; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=(i-m-1)/26; } return s; }
+
+  function sheetXML(rows){
+    const body = rows.map((row,r)=>{
+      const cells = (row||[]).map((val,c)=>{
+        const ref = colName(c) + (r+1);
+        if(val === null || val === undefined || val === '') return '';
+        // real numbers go in as numbers so Excel can total them
+        if(typeof val === 'number' && isFinite(val))
+          return `<c r="${ref}"><v>${val}</v></c>`;
+        return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xesc(val)}</t></is></c>`;
+      }).join('');
+      return `<row r="${r+1}">${cells}</row>`;
+    }).join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+  }
+
+  /** sheets = { 'Tab name': [[...row], ...] } */
+  function book(sheets){
+    const names = Object.keys(sheets);
+    const f = [];
+    f.push({name:'[Content_Types].xml', data:enc(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+${names.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}
+</Types>`)});
+    f.push({name:'_rels/.rels', data:enc(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`)});
+    f.push({name:'xl/workbook.xml', data:enc(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>
+${names.map((nm,i)=>`<sheet name="${xesc(nm).slice(0,31)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}
+</sheets></workbook>`)});
+    f.push({name:'xl/_rels/workbook.xml.rels', data:enc(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${names.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}
+</Relationships>`)});
+    names.forEach((nm,i)=>f.push({name:`xl/worksheets/sheet${i+1}.xml`,
+      data:enc(sheetXML(sheets[nm]||[]))}));
+    return zip(f);
+  }
+
+  /* ---- reading ---- */
+  function parseSheet(xml, shared){
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const rows = [];
+    [...doc.getElementsByTagName('row')].forEach(rn=>{
+      const r = parseInt(rn.getAttribute('r'),10) - 1;
+      const row = rows[r] = rows[r] || [];
+      [...rn.getElementsByTagName('c')].forEach(cn=>{
+        const ref = cn.getAttribute('r') || '';
+        const letters = (ref.match(/^[A-Z]+/)||['A'])[0];
+        let ci = 0; for(const ch of letters) ci = ci*26 + (ch.charCodeAt(0)-64);
+        ci -= 1;
+        const t = cn.getAttribute('t');
+        let v = '';
+        if(t === 'inlineStr'){
+          const is = cn.getElementsByTagName('t');
+          v = is.length ? [...is].map(x=>x.textContent).join('') : '';
+        } else {
+          const vn = cn.getElementsByTagName('v')[0];
+          v = vn ? vn.textContent : '';
+          if(t === 's') v = shared[parseInt(v,10)] ?? '';
+        }
+        row[ci] = v;
+      });
+    });
+    // a sparse sheet leaves holes; callers expect plain strings
+    return rows.map(r => Array.from(r||[], x => x==null ? '' : String(x)));
+  }
+
+  async function read(file){
+    const name = (file.name||'').toLowerCase();
+    if(name.endsWith('.csv') || name.endsWith('.txt')){
+      return {'CSV': parseCSV(await file.text())};
+    }
+    const files = await unzip(await file.arrayBuffer());
+    const wbXml = files['xl/workbook.xml'];
+    if(!wbXml) throw new Error('That file is not an Excel workbook. Save it as .xlsx or .csv.');
+    const dec = u => new TextDecoder().decode(u);
+    let shared = [];
+    if(files['xl/sharedStrings.xml']){
+      const sd = new DOMParser().parseFromString(dec(files['xl/sharedStrings.xml']), 'application/xml');
+      shared = [...sd.getElementsByTagName('si')].map(si =>
+        [...si.getElementsByTagName('t')].map(t=>t.textContent).join(''));
+    }
+    const wb = new DOMParser().parseFromString(dec(wbXml), 'application/xml');
+    const names = [...wb.getElementsByTagName('sheet')].map(s=>s.getAttribute('name'));
+    const out = {};
+    names.forEach((nm,i)=>{
+      const key = `xl/worksheets/sheet${i+1}.xml`;
+      if(files[key]) out[nm] = parseSheet(dec(files[key]), shared);
+    });
+    if(!Object.keys(out).length) throw new Error('That workbook has no readable sheets');
+    return out;
+  }
+
+  /** A forgiving CSV reader — handles quotes, embedded commas and newlines. */
+  function parseCSV(text){
+    const rows = []; let row = [], cell = '', q = false;
+    text = String(text).replace(/^﻿/, '');           // Excel writes a BOM
+    for(let i=0;i<text.length;i++){
+      const c = text[i];
+      if(q){
+        if(c === '"' && text[i+1] === '"'){ cell += '"'; i++; }
+        else if(c === '"') q = false;
+        else cell += c;
+      } else if(c === '"') q = true;
+      else if(c === ','){ row.push(cell); cell = ''; }
+      else if(c === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if(c !== '\r') cell += c;
+    }
+    if(cell !== '' || row.length){ row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  return {book, read, parseCSV, zip, unzip};
+})();
+
+/* ============================================================================
+   EXCEL IN AND OUT — the whole business as a workbook, and back again.
+   Every import is previewed before a single figure changes.
+   ========================================================================== */
+const Excel = {
+  /* ---- out ---- */
+  sheets(){
+    const lines = [['Order','Date','Party code','Party','Status','Style','Name','Shade','Size','Qty','Rate','Value']];
+    DB.orders.forEach(o=>o.lines.forEach(l=>lines.push([
+      o.id, fmtDate(o.date), o.partyCode, o.partyName, o.status,
+      l.code, l.name, l.colour, l.size, num(l.qty), num(l.rate), num(l.qty)*num(l.rate)])));
+
+    const heads = [['Order','Date','Party code','Party','Status','Pieces','Value']];
+    DB.orders.forEach(o=>heads.push([o.id, fmtDate(o.date), o.partyCode, o.partyName,
+      o.status, num(o.totalQty), num(o.totalValue)]));
+
+    const arts = [['Style','Name','Fabric','Segment','Rate','MOQ','Shades','Sizes',
+      'Availability','Order mode','Access','Active']];
+    DB.articles.forEach(a=>arts.push([a.code, a.name, a.fabric, a.segment, num(a.rate), num(a.moq),
+      (a.colours||[]).join(', '), (a.sizes||[]).join(', '),
+      isReady(a)?'Ready stock':'Booking', a.orderMode||'loose',
+      a.visibility==='exclusive'
+        ? (a.parties||[]).map(p=>party(p)?party(p).code:'?').join(', ') : 'Common',
+      a.active===false?'No':'Yes']));
+
+    const stock = [['Style','Name','Shade','Size','Qty']];
+    DB.articles.forEach(a=>{ if(!isReady(a)) return;
+      (a.colours||[]).forEach(c=>(a.sizes||[]).forEach(z=>
+        stock.push([a.code, a.name, c, z, num(a.stock[c+'|'+z])]))); });
+
+    const parties = [['Code','Party','City','State','Discount %','Orders','Active']];
+    DB.wholesalers.filter(w=>w.id!=='self').forEach(w=>parties.push([w.code, w.name,
+      w.city||'', w.state||'', num(w.discount),
+      DB.orders.filter(o=>o.partyId===w.id).length, w.active===false?'No':'Yes']));
+
+    const boxes = [['Box type','Note','Pieces per box','Mix']];
+    (DB.boxTypes||[]).forEach(b=>boxes.push([b.name, b.note||'',
+      (b.mix||[]).reduce((t,m)=>t+num(m.qty),0),
+      (b.mix||[]).map(m=>m.qty+'× '+m.colour).join(', ')]));
+
+    return {'Order lines':lines, 'Orders':heads, 'Styles':arts,
+            'Stock':stock, 'Wholesalers':parties, 'Box types':boxes};
+  },
+  download(){
+    const blob = XL.book(Excel.sheets());
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u; a.download = `CKL-${todayISO()}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u), 4000);
+    toast('Excel workbook downloaded — six sheets');
+  },
+  /** A blank workbook shaped exactly the way the importer expects. */
+  template(){
+    const blob = XL.book({
+      'Stock':[['Style','Shade','Size','Qty'],
+        ...DB.articles.filter(isReady).slice(0,1).flatMap(a=>
+          (a.colours||[]).slice(0,2).flatMap(c=>(a.sizes||[]).slice(0,2).map(z=>
+            [a.code, c, z, num(a.stock[c+'|'+z])])))],
+      'Styles':[['Style','Name','Fabric','Segment','Rate','MOQ','Shades','Sizes'],
+        ['CK-999','Example Track Pant','4-Way Lycra · 240 GSM','Men',385,24,
+         'Black, Navy, Dark Grey','M, L, XL, XXL']]
+    });
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u; a.download = 'CKL-upload-template.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u), 4000);
+    toast('Template downloaded — fill it in and upload it back');
+  },
+
+  /* ---- in ---- */
+  /** Find a column by any of several accepted headings. */
+  col(head, names){
+    const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const H = head.map(norm);
+    for(const n of names){ const i = H.indexOf(norm(n)); if(i >= 0) return i; }
+    return -1;
+  },
+  async pick(inp){
+    const f = inp.files && inp.files[0]; inp.value = '';
+    if(!f) return;
+    let wb;
+    try{ wb = await XL.read(f); }
+    catch(e){ toast(e.message, true); return; }
+    Excel.review(wb, f.name);
+  },
+  /** Work out what the workbook would change, and show it before touching anything. */
+  review(wb, filename){
+    const plan = {stock:[], styles:[], problems:[]};
+
+    for(const name in wb){
+      const rows = (wb[name]||[]).filter(r=>r && r.some(c=>String(c).trim() !== ''));
+      if(rows.length < 2) continue;
+      const head = rows[0], body = rows.slice(1);
+
+      const cStyle = Excel.col(head, ['Style','Style no','Article','Code','Style number']);
+      const cShade = Excel.col(head, ['Shade','Colour','Color']);
+      const cSize  = Excel.col(head, ['Size']);
+      const cQty   = Excel.col(head, ['Qty','Quantity','Pieces','Pcs','Stock']);
+
+      // a stock sheet: style + shade + size + qty
+      if(cStyle>=0 && cShade>=0 && cSize>=0 && cQty>=0){
+        body.forEach((r,i)=>{
+          const code = String(r[cStyle]||'').trim();
+          const shade = String(r[cShade]||'').trim();
+          const size = String(r[cSize]||'').trim();
+          const qtyRaw = String(r[cQty]||'').trim();
+          if(!code && !shade && !size) return;
+          const a = DB.articles.find(x=>x.code.toLowerCase() === code.toLowerCase());
+          const where = `${name} row ${i+2}`;
+          if(!a){ plan.problems.push(`${where}: no style called “${code}”`); return; }
+          if(!(a.colours||[]).includes(shade)){
+            plan.problems.push(`${where}: ${a.code} has no shade “${shade}”`); return; }
+          if(!(a.sizes||[]).includes(size)){
+            plan.problems.push(`${where}: ${a.code} has no size “${size}”`); return; }
+          if(!/^\d+$/.test(qtyRaw)){
+            plan.problems.push(`${where}: “${qtyRaw}” is not a whole number`); return; }
+          const was = num(a.stock[shade+'|'+size]), now = num(qtyRaw);
+          if(was !== now) plan.stock.push({a, shade, size, was, now});
+        });
+        continue;
+      }
+
+      // a styles sheet: style + name, plus whatever else is filled in
+      const cName = Excel.col(head, ['Name','Article name','Description']);
+      if(cStyle>=0 && cName>=0){
+        const cRate = Excel.col(head, ['Rate','Price','List rate']);
+        const cMoq  = Excel.col(head, ['MOQ','Minimum','Min qty']);
+        const cFab  = Excel.col(head, ['Fabric','Quality']);
+        const cSeg  = Excel.col(head, ['Segment','Category']);
+        const cCols = Excel.col(head, ['Shades','Colours','Colors']);
+        const cSzs  = Excel.col(head, ['Sizes']);
+        body.forEach((r,i)=>{
+          const code = String(r[cStyle]||'').trim();
+          if(!code) return;
+          const where = `${name} row ${i+2}`;
+          const rate = cRate>=0 ? String(r[cRate]||'').replace(/[^\d.]/g,'') : '';
+          if(cRate>=0 && rate && !/^\d+(\.\d+)?$/.test(rate)){
+            plan.problems.push(`${where}: rate “${r[cRate]}” is not a number`); return; }
+          const found = DB.articles.find(x=>x.code.toLowerCase() === code.toLowerCase());
+          const rec = {
+            code, name:String(r[cName]||'').trim(),
+            fabric: cFab>=0 ? String(r[cFab]||'').trim() : '',
+            segment: cSeg>=0 ? String(r[cSeg]||'').trim() : '',
+            rate: rate ? Math.round(parseFloat(rate)) : null,
+            moq: cMoq>=0 && String(r[cMoq]||'').trim() ? num(r[cMoq]) : null,
+            colours: cCols>=0 ? String(r[cCols]||'').split(/[,;/]/).map(s=>s.trim()).filter(Boolean) : null,
+            sizes:   cSzs>=0  ? String(r[cSzs] ||'').split(/[,;/]/).map(s=>s.trim()).filter(Boolean) : null
+          };
+          if(!found && !rec.name){
+            plan.problems.push(`${where}: new style “${code}” needs a name`); return; }
+          plan.styles.push({rec, existing:found});
+        });
+      }
+    }
+
+    Excel._plan = plan;
+    const nS = plan.stock.length, nA = plan.styles.length, nP = plan.problems.length;
+    const nothing = !nS && !nA;
+
+    Modal.show({
+      wide:true,
+      title: nothing ? 'Nothing to import' : 'Check before importing',
+      sub: filename + (nothing ? '' : ` · nothing has changed yet`),
+      body: nothing
+        ? `<p style="margin:0 0 10px">No rows in that file matched a sheet the importer
+             understands.</p>
+           <p class="tiny muted" style="margin:0 0 12px">For stock, the sheet needs columns named
+             <b>Style</b>, <b>Shade</b>, <b>Size</b> and <b>Qty</b>. For styles it needs at least
+             <b>Style</b> and <b>Name</b>. Capitals and spacing do not matter.</p>
+           ${nP ? `<div class="sec"><h4>${nP} row${nP===1?'':'s'} could not be read</h4>
+             <div class="mix" style="max-height:220px; overflow:auto">${plan.problems
+               .slice(0,60).map(esc).join('<br>')}</div></div>` : ''}
+           <button class="btn sm" onclick="Modal.close();Excel.template()">Download the template</button>`
+        : `${nS ? `<div class="sec"><h4>Stock — ${nS} change${nS===1?'':'s'}</h4>
+             <div class="tbl-scroll" style="max-height:260px; overflow:auto"><table class="data">
+             <thead><tr><th>Style</th><th>Shade</th><th>Size</th><th class="n">Now</th><th class="n">Becomes</th></tr></thead>
+             <tbody>${plan.stock.slice(0,300).map(s=>`<tr><td class="mono">${esc(s.a.code)}</td>
+               <td>${esc(s.shade)}</td><td>${esc(s.size)}</td>
+               <td class="n muted">${s.was}</td>
+               <td class="n"><b style="color:${s.now>s.was?'#0d6b3c':'var(--red)'}">${s.now}</b></td></tr>`).join('')}
+             </tbody></table></div>
+             ${nS>300?`<p class="tiny muted" style="margin:8px 0 0">Showing the first 300 of ${nS}.</p>`:''}
+             </div>`:''}
+           ${nA ? `<div class="sec"><h4>Styles — ${nA} row${nA===1?'':'s'}</h4>
+             <div class="tbl-scroll" style="max-height:200px; overflow:auto"><table class="data">
+             <thead><tr><th>Style</th><th>Name</th><th></th></tr></thead>
+             <tbody>${plan.styles.slice(0,200).map(s=>`<tr>
+               <td class="mono">${esc(s.rec.code)}</td><td>${esc(s.rec.name||(s.existing||{}).name||'')}</td>
+               <td>${s.existing?'<span class="chip">Update</span>':'<span class="chip red">New</span>'}</td>
+               </tr>`).join('')}</tbody></table></div></div>`:''}
+           ${nP ? `<div class="sec"><h4>${nP} row${nP===1?'':'s'} will be skipped</h4>
+             <div class="mix" style="max-height:160px; overflow:auto">${plan.problems
+               .slice(0,60).map(esc).join('<br>')}</div></div>` : ''}`,
+      foot: nothing
+        ? `<button class="btn" onclick="Modal.close()">Close</button>`
+        : `<button class="btn" onclick="Modal.close()">Cancel — change nothing</button>
+           <button class="btn accent" onclick="Excel.apply()">Apply these changes</button>`
+    });
+  },
+
+  async apply(){
+    const p = Excel._plan; if(!p) return;
+    const touched = new Set();
+    p.stock.forEach(s=>{ s.a.stock[s.shade+'|'+s.size] = s.now; touched.add(s.a); });
+    p.styles.forEach(({rec, existing})=>{
+      const a = existing || {id:uid('a'), code:rec.code, name:'', fabric:'', segment:'Men',
+        rate:0, moq:12, sizes:[], colours:[], orderMode:'loose', boxTypeIds:[],
+        visibility:'common', parties:[], stockMode:'booking', stock:{}, photoIds:[], active:true};
+      if(rec.name) a.name = rec.name;
+      if(rec.fabric) a.fabric = rec.fabric;
+      if(rec.segment) a.segment = rec.segment;
+      if(rec.rate !== null) a.rate = rec.rate;
+      if(rec.moq !== null) a.moq = rec.moq;
+      if(rec.colours && rec.colours.length) a.colours = rec.colours;
+      if(rec.sizes && rec.sizes.length) a.sizes = rec.sizes;
+      if(!existing) DB.articles.push(a);
+      touched.add(a);
+    });
+    Modal.close();
+    toast('Saving ' + touched.size + ' style' + (touched.size===1?'':'s') + '…');
+    Store.save();
+    let failed = 0;
+    if(CLOUD){
+      for(const a of touched){ try{ await Cloud.saveArticle(a); }catch(e){ failed++; } }
+    } else touched.forEach(a=>Sync.push('upsertArticle', {article:a}));
+    Excel._plan = null;
+    Nav.refresh();
+    toast(failed
+      ? `${touched.size - failed} saved · ${failed} could not be sent to the database`
+      : `Imported — ${p.stock.length} stock change${p.stock.length===1?'':'s'}, `
+        + `${p.styles.length} style${p.styles.length===1?'':'s'}`, !!failed);
+  }
+};
 
 const CSV = {
   orders(){
