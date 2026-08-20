@@ -222,8 +222,10 @@ label.fl>span{display:block; font-size:11px; font-weight:600; color:var(--muted)
   background:transparent; color:var(--muted); cursor:pointer; font-family:var(--f-body);
   transition:background var(--d-2) var(--e), color var(--d-2) var(--e), box-shadow var(--d-2) var(--e)}
 .seg button[aria-selected=true]{background:#fff; color:var(--ink); box-shadow:var(--sh-1)}
-.pin-row{display:flex; gap:10px}
+.pin-row{display:flex; gap:8px; align-items:stretch}
 .pin-row input{text-align:center; font-family:var(--f-mono); font-size:16px; letter-spacing:.3em; font-weight:500}
+.pin-row .pineye{flex:none; align-self:stretch; padding:0 13px; min-width:62px;
+  justify-content:center; letter-spacing:0}
 .err{color:var(--red); font-size:12px; font-weight:600; min-height:17px; margin-top:10px}
 .demo{margin-top:24px; padding-top:18px; border-top:1px solid var(--line-2)}
 .demo-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-top:9px}
@@ -1147,10 +1149,17 @@ nav.tabs{position:static; top:auto}
     <form id="stepCreds" onsubmit="event.preventDefault();Auth.submit()">
       <label class="fl"><span>Login ID</span>
         <input id="lcode" autocomplete="username" autocapitalize="characters" spellcheck="false"
+               autocorrect="off" enterkeyhint="next"
                placeholder="Your login ID" style="text-transform:uppercase"></label>
+      <!-- numbers only, and long enough for any PIN. The old maxlength of 8
+           silently truncated longer ones, so the field could not hold what the
+           person was typing and sign-in failed with no explanation. -->
       <label class="fl"><span>PIN</span>
-        <div class="pin-row"><input id="lpin" type="password" inputmode="numeric" maxlength="8"
-               autocomplete="current-password" placeholder="••••"></div></label>
+        <div class="pin-row"><input id="lpin" type="password" inputmode="numeric"
+               pattern="[0-9]*" maxlength="12" autocomplete="current-password"
+               enterkeyhint="go" placeholder="••••••">
+          <button type="button" class="btn sm ghost pineye" id="lpineye"
+                  onclick="Auth.peek()" aria-label="Show PIN">Show</button></div></label>
       <div class="err" id="lerr" role="alert" aria-live="assertive"></div>
       <button class="btn primary" id="signinBtn"
               style="width:100%; justify-content:center; padding:11px" type="submit">
@@ -2101,12 +2110,36 @@ const Auth = {
 
   /* One form, one step. The login ID decides whether this is the office or a
      wholesaler, so nobody has to pick the right tab first. */
+  /** Show or hide the PIN. Someone who cannot see what they typed has no way
+      to tell a wrong PIN from a mistyped one. */
+  peek(){
+    const i = $('#lpin'), b = $('#lpineye'); if(!i) return;
+    const show = i.type === 'password';
+    i.type = show ? 'text' : 'password';
+    b.textContent = show ? 'Hide' : 'Show';
+    b.setAttribute('aria-label', show ? 'Hide PIN' : 'Show PIN');
+    i.focus();
+  },
+
+  /** Tidy whatever ended up in the login box.
+      Safari autofills far more eagerly than other browsers and will happily
+      drop a saved email address into a field marked autocomplete="username".
+      "someone@gmail.com" then became "someone@gmail.com@cklonline.in" and the
+      sign-in failed with an unhelpful message. Anything from the @ onward is
+      dropped, along with spaces and punctuation a keyboard may have added. */
+  cleanCode(v){
+    return String(v||'').split('@')[0]
+      .replace(/[^A-Za-z0-9]/g, '')
+      .trim().toUpperCase();
+  },
+
   async submit(){
-    const code = ($('#lcode').value||'').trim().toUpperCase();
+    const code = Auth.cleanCode($('#lcode').value);
     const pin  = ($('#lpin').value||'').trim();
     const err  = $('#lerr');
     const btn  = $('#signinBtn');
-    if(!code || !pin){ err.textContent = 'Enter your login ID and PIN.'; return; }
+    if(!code){ err.textContent = 'Enter your login ID.'; $('#lcode').focus(); return; }
+    if(!pin){ err.textContent = 'Enter your PIN.'; $('#lpin').focus(); return; }
 
     err.textContent = '';
     Auth.busy(btn, true, 'Signing in…');
@@ -2122,8 +2155,13 @@ const Auth = {
       }
       await Auth.enter();
     }catch(e){
-      err.textContent = e.message;
-      $('#lpin').value = ''; $('#lpin').focus();
+      // Say which ID was actually tried. Autofill and phone keyboards change
+      // what is in the box, and "not recognised" with no detail leaves someone
+      // guessing which of the two fields is wrong.
+      err.textContent = /not recognised/i.test(e.message)
+        ? `Signed in as “${code}”? That ID and PIN did not match. Tap Show to check the PIN.`
+        : e.message;
+      $('#lpin').focus(); $('#lpin').select();
     }finally{
       Auth.busy(btn, false, 'Sign in');
     }
@@ -4909,25 +4947,35 @@ const Logins = {
       unattended screen. The new PIN is typed twice, because a typo here locks
       you out of your own account. */
   ownPin(){
+    const F = n => `<input id="${n}" type="password" inputmode="numeric" pattern="[0-9]*"
+      maxlength="12" autocomplete="off" data-pinbox>`;
     Modal.show({
       title:'Change your PIN', sub:'You will use the new PIN the next time you sign in',
-      body:`<label class="fl"><span>Your current PIN</span>
-              <input id="p0" type="password" autocomplete="current-password"></label>
+      body:`<label class="fl"><span>Your current PIN</span>${F('p0')}</label>
             <div class="hr"></div>
-            <label class="fl"><span>New PIN — at least 6 characters</span>
-              <input id="p1" type="password" autocomplete="new-password"></label>
-            <label class="fl"><span>Type the new PIN again</span>
-              <input id="p2" type="password" autocomplete="new-password"></label>
+            <label class="fl"><span>New PIN — 6 to 12 numbers</span>${F('p1')}</label>
+            <label class="fl"><span>Type the new PIN again</span>${F('p2')}</label>
+            <p class="tiny muted" style="margin:0 0 4px">Numbers only. Six is the shortest the
+              database will accept.</p>
             <div class="err" id="perr" role="alert" aria-live="assertive"></div>`,
       foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
             <button class="btn accent" id="pgo" onclick="Logins.saveOwnPin()">Change PIN</button>`
     });
+    Logins.digitsOnly();
+  },
+  /** Keep every PIN box numeric while it is being typed. */
+  digitsOnly(){
+    $$('[data-pinbox]').forEach(i=>i.addEventListener('input', ()=>{
+      const d = i.value.replace(/\D/g,''); if(i.value !== d) i.value = d;
+    }));
   },
   async saveOwnPin(){
-    const cur = $('#p0').value || '';
-    const a = $('#p1').value || '', b = $('#p2').value || '', err = $('#perr');
+    const cur = ($('#p0').value||'').replace(/\D/g,'');
+    const a = ($('#p1').value||'').replace(/\D/g,'');
+    const b = ($('#p2').value||'').replace(/\D/g,'');
+    const err = $('#perr');
     if(!cur){ err.textContent = 'Enter your current PIN first.'; return; }
-    if(a.length < 6){ err.textContent = 'The new PIN needs at least 6 characters.'; return; }
+    if(a.length < 6){ err.textContent = 'The new PIN needs at least 6 numbers.'; return; }
     if(a !== b){ err.textContent = 'The two new PINs do not match.'; return; }
     if(a === cur){ err.textContent = 'That is already your PIN — choose a different one.'; return; }
     const btn = $('#pgo'); btn.disabled = true; btn.textContent = 'Changing…';
@@ -4977,18 +5025,20 @@ const Logins = {
   resetPin(uid, code){
     Modal.show({
       title:'Reset PIN', sub:`For ${code}`,
-      body:`<label class="fl"><span>New PIN — at least 6 characters</span>
-              <input id="r1" autocomplete="off" spellcheck="false"></label>
-            <p class="tiny muted" style="margin:0 0 4px">Write it down before you save — it cannot
-              be read back afterwards. Pass it to ${esc(code)} yourself.</p>
+      body:`<label class="fl"><span>New PIN — 6 to 12 numbers</span>
+              <input id="r1" inputmode="numeric" pattern="[0-9]*" maxlength="12"
+                     autocomplete="off" spellcheck="false" data-pinbox></label>
+            <p class="tiny muted" style="margin:0 0 4px">Numbers only. Write it down before you
+              save — it cannot be read back afterwards. Pass it to ${esc(code)} yourself.</p>
             <div class="err" id="rerr" role="alert" aria-live="assertive"></div>`,
       foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
             <button class="btn accent" id="rgo" onclick="Logins.saveResetPin('${esc(uid)}')">Set PIN</button>`
     });
+    Logins.digitsOnly();
   },
   async saveResetPin(uid){
-    const v = $('#r1').value || '', err = $('#rerr');
-    if(v.length < 6){ err.textContent = 'Use at least 6 characters.'; return; }
+    const v = ($('#r1').value||'').replace(/\D/g,''), err = $('#rerr');
+    if(v.length < 6){ err.textContent = 'Use at least 6 numbers.'; return; }
     const btn = $('#rgo'); btn.disabled = true; btn.textContent = 'Saving…';
     try{
       await Cloud.rpc('set_login_pin', {p_user:uid, p_pin:v});
@@ -5010,18 +5060,27 @@ Views.logins = function(v){
     const box = $('#lgBody'); if(!box) return;
     if(Logins.err){
       const missing = /list_logins|does not exist|schema/i.test(Logins.err);
-      box.innerHTML = `<div class="glass rv" style="padding:18px 20px">
-        <div class="warnbox" style="margin:0 0 12px">${esc(Logins.err)}</div>
-        ${missing ? `<p style="margin:0 0 8px">Login management needs one setup step that only you
-            can run, because it changes the database itself.</p>
-          <ol class="tiny muted" style="margin:0; padding-left:18px; line-height:1.9">
-            <li>Open your Supabase project → <b>SQL Editor</b></li>
-            <li>Paste the contents of <span class="mono">db/supabase_photos_and_logins.sql</span></li>
-            <li>Press <b>Run</b>, then come back here</li>
-          </ol>
-          <p class="tiny muted" style="margin:10px 0 0">The same file also switches on shared
-            product photos. You can still change your own PIN above without it.</p>`
-        : ''}</div>`;
+      // Lead with what works. The missing piece only affects managing OTHER
+      // people's logins — changing your own PIN needs nothing set up at all.
+      box.innerHTML = missing
+        ? `<div class="glass rv" style="padding:20px 22px">
+             <div class="okbox" style="margin:0 0 16px">
+               <b>Changing your own PIN works right now</b> — use the button above.
+               Numbers only, 6 to 12 of them.</div>
+             <h4 style="font-size:14px; margin:0 0 6px">To manage everyone else's logins</h4>
+             <p class="tiny muted" style="margin:0 0 10px">Listing accounts, changing a login ID
+               and resetting somebody's PIN each need one setup step that only you can run,
+               because it changes the database itself. It takes about a minute.</p>
+             <ol class="tiny muted" style="margin:0; padding-left:18px; line-height:1.95">
+               <li>Open your Supabase project → <b>SQL Editor</b></li>
+               <li>Paste the contents of <span class="mono">db/supabase_photos_and_logins.sql</span></li>
+               <li>Press <b>Run</b>, then reload this page</li>
+             </ol>
+             <p class="tiny muted" style="margin:12px 0 0">The same file also switches on shared
+               product photos, so your wholesalers can see them.</p>
+           </div>`
+        : `<div class="glass rv" style="padding:18px 20px">
+             <div class="warnbox" style="margin:0">${esc(Logins.err)}</div></div>`;
       return;
     }
     const rows = Logins.rows || [];
@@ -6002,8 +6061,26 @@ const LOGO_SVG = `
     </g>
   </svg>`;
 
+/* The logo lives in the database, which is only readable once you are signed
+   in — so on the login screen there was nothing to draw and it always fell back
+   to the built-in mark. A copy is kept on the device purely so the login page
+   can show the real logo before anyone has authenticated. */
+const LOGO_CACHE = 'ckl_logo';
+function cacheLogo(src){
+  try{
+    if(src) localStorage.setItem(LOGO_CACHE, src);
+    else localStorage.removeItem(LOGO_CACHE);
+  }catch(e){}                                   // private browsing — not fatal
+}
+function cachedLogo(){
+  try{ return localStorage.getItem(LOGO_CACHE) || ''; }catch(e){ return ''; }
+}
 function applyLogo(){
-  const src = DB && DB.settings && DB.settings.logo;
+  const live = DB && DB.settings && DB.settings.logo;
+  // once the database has spoken it is the authority, including when it says
+  // "no logo" — otherwise a removed logo would linger on this device forever
+  if(DB && DB.settings) cacheLogo(live || '');
+  const src = live || (DB && DB.settings ? '' : cachedLogo());
   $$('[data-logo]').forEach(el=>{
     el.innerHTML = src ? `<img src="${src}" alt="CKL logo">` : LOGO_SVG;
   });
@@ -6273,6 +6350,21 @@ const Guard = {
 /* ============================================================================
    Boot
    ========================================================================== */
+/* Keep the login fields clean as they are typed or autofilled, so what is on
+   screen is exactly what will be sent. Safari fires `input` on autofill too,
+   which is what makes this catch a pasted-in email address. */
+(function loginFields(){
+  const code = $('#lcode'), pin = $('#lpin');
+  if(code) code.addEventListener('input', ()=>{
+    const c = Auth.cleanCode(code.value);
+    if(code.value !== c) code.value = c;
+  });
+  // The PIN box deliberately does NOT strip letters. New PINs are numbers only
+  // (enforced where they are created), but an account still holding an older
+  // mixed PIN has to be able to type it, or stripping would lock it out.
+  // inputmode brings up the number pad, which is the part that matters daily.
+})();
+
 Guard.install();
 Theme.set(Theme.get());          // sync the toggle labels with the pre-paint theme
 applyLogo();                     // uploaded logo if one is stored, vector otherwise
