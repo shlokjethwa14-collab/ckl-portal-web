@@ -1248,7 +1248,14 @@ const uid = p => p+'_'+Math.random().toString(36).slice(2,9);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
 const num = v => { const n = parseInt(v,10); return isNaN(n)?0:n; };
-const money = n => '₹' + Math.round(n).toLocaleString('en-IN');
+/* Paise appear only when there are any, so whole-rupee figures stay clean but a
+   chained discount that lands on 169.79 is never quietly shown as 170. */
+const money = n => {
+  const v = Math.round((Number(n)||0) * 100) / 100;
+  return '₹' + (Number.isInteger(v)
+    ? v.toLocaleString('en-IN')
+    : v.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}));
+};
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const todayISO = () => new Date().toISOString().slice(0,10);
 const fmtDate = iso => { const d=new Date(iso); return isNaN(d) ? iso :
@@ -1893,11 +1900,14 @@ const Cloud = {
   },
   toParty(w){
     return { id:w.id, code:w.code, name:w.name, city:w.city, phone:w.phone,
-      discount:num(w.discount), active:w.active !== false };
+      discount:Number(w.discount)||0, discounts:Array.isArray(w.discounts)?w.discounts:[],
+      active:w.active !== false };
   },
   fromParty(w){
     return { id:w.id, code:w.code, name:w.name, city:w.city, phone:w.phone,
-      discount:num(w.discount), active:w.active !== false };
+      // the combined figure, not a rounded-to-integer one — 55.9% must survive
+      discount:Number(w.discount)||0, discounts:discountList(w),
+      active:w.active !== false };
   },
   toOrder(o){
     return { id:o.id, partyId:o.party_id, partyCode:o.party_code, partyName:o.party_name,
@@ -1941,8 +1951,24 @@ const Cloud = {
   /* ---- writes ---- */
   saveArticle(a){ return Cloud.rest('articles', {method:'POST',
     headers:{'Prefer':'resolution=merge-duplicates'}, body:[Cloud.fromArticle(a)]}); },
-  saveParty(w){ return Cloud.rest('wholesalers', {method:'POST',
-    headers:{'Prefer':'resolution=merge-duplicates'}, body:[Cloud.fromParty(w)]}); },
+  /** Save a party. The discounts column only exists once the setup SQL has been
+      run, so if the database rejects it we send everything else rather than
+      losing the whole save — the combined `discount` is what pricing needs and
+      that always goes through. */
+  async saveParty(w){
+    const row = Cloud.fromParty(w);
+    try{
+      return await Cloud.rest('wholesalers', {method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'}, body:[row]});
+    }catch(e){
+      if(!/discounts/i.test(e.message)) throw e;
+      const {discounts, ...rest} = row;
+      const r = await Cloud.rest('wholesalers', {method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'}, body:[rest]});
+      Cloud._noDiscounts = true;
+      return r;
+    }
+  },
   saveBoxType(b){ return Cloud.rest('box_types', {method:'POST',
     headers:{'Prefer':'resolution=merge-duplicates'},
     body:[{id:b.id,name:b.name,note:b.note,mix:b.mix,active:b.active!==false}]}); },
@@ -2194,7 +2220,7 @@ const Auth = {
         const w = party(SESSION.partyId) || {};
         $('#roleLbl').textContent = 'Wholesale Portal';
         $('#whoName').textContent = w.name || 'Wholesaler';
-        $('#whoSub').textContent  = [w.code, w.city, (num(w.discount)||0)+'% off']
+        $('#whoSub').textContent  = [w.code, w.city, discountText(w)]
                                       .filter(Boolean).join(' · ');
       }
       Nav.build();
@@ -2224,7 +2250,7 @@ const Auth = {
         const w = party(SESSION.partyId);
         $('#roleLbl').textContent = 'Wholesale Portal';
         $('#whoName').textContent = w.name;
-        $('#whoSub').textContent  = [w.code, w.city, (num(w.discount)||0) + '% off']
+        $('#whoSub').textContent  = [w.code, w.city, discountText(w)]
                                       .filter(Boolean).join(' · ');
       }
       Nav.build();
@@ -2371,11 +2397,46 @@ function incStock(a,c,z,q){
 }
 
 /** net per-piece rate for the signed-in party */
+/* ---------------------------------------------------------------- discounts
+   A party can carry several named discounts — 50% + 10% + 2% is one deal, not
+   three. Trade practice is to CHAIN them: 10% comes off what is left after the
+   50%, not off the list rate. So 50+10+2 is 55.9% off, never 62%.
+
+   The chained result is written back to the party's plain `discount` field,
+   because that single figure is what the database prices orders with. Keeping
+   it in step means the breakdown is presentation and the money is never in two
+   minds about itself. */
+function discountList(w){
+  if(!w) return [];
+  const raw = Array.isArray(w.discounts) ? w.discounts : [];
+  return raw.map(d=>({name:String(d.name||'').trim(), pct:Number(d.pct)||0}))
+            .filter(d=>d.pct > 0);
+}
+/** Combined percentage off, chained, to two decimals. */
+function effDiscount(w){
+  const list = discountList(w);
+  if(!list.length) return Math.round(num(w && w.discount) * 100) / 100;
+  const keep = list.reduce((k,d)=>k * (1 - d.pct/100), 1);
+  return Math.round((1 - keep) * 10000) / 100;
+}
+/** "50% + 10% + 2%" — how a buyer would say it out loud. */
+function discountText(w){
+  const list = discountList(w);
+  if(!list.length){ const d = num(w && w.discount); return d ? d + '% off' : ''; }
+  if(list.length === 1) return list[0].pct + '% off';
+  return list.map(d=>d.pct + '%').join(' + ') + ' = ' + effDiscount(w) + '% off';
+}
+
+/* The net rate a buyer pays.
+   This rounds to two decimals because that is exactly what the database does
+   when it prices the order — round(rate * (100 - discount) / 100, 2). Rounding
+   to whole rupees here instead made the draft disagree with the confirmed
+   order: at 55.9% off, 312 pieces came out ₹65 apart. The buyer must be quoted
+   the number they will actually be charged. */
 function netRate(a){
   if(!SESSION || SESSION.role==='admin') return a.rate;
   const w = party(SESSION.partyId);
-  const d = w ? num(w.discount) : 0;
-  return Math.round(a.rate * (100-d) / 100);
+  return Math.round(a.rate * (100 - effDiscount(w))) / 100;
 }
 /** catalogue visible to the signed-in party */
 function visibleArticles(){
@@ -3643,7 +3704,7 @@ Views.orderpad = function(v){
       <div class="glass stat rv"><div class="k">Articles</div><div class="v" data-cu="${t.arts}">0</div></div>
       <div class="glass stat accent rv"><div class="k">Draft value</div>
         <div class="v" data-cu="${t.val}" data-money="1">0</div>
-        <div class="s">net of your ${num(party(SESSION.partyId).discount)}% discount</div></div>
+        <div class="s">net of your ${esc(discountText(party(SESSION.partyId)))||"list rate"}</div></div>
     </div>
     ${short ? `<div class="warnbox rv">One or more articles are below their MOQ. Top them up before placing.</div>`:''}
     ${blocks}
@@ -4657,7 +4718,7 @@ Views.parties = function(v){
             <td class="mono" data-l="Code"><b>${esc(w.code)}</b></td>
             <td data-l="Party">${esc(w.name)} ${w.active===false?'<span class="chip">On hold</span>':''}</td>
             <td class="muted" data-l="City">${esc(w.city||'—')}</td>
-            <td class="n" data-l="Discount">${num(w.discount)}%</td>
+            <td class="n" data-l="Discount" title="${esc(discountText(w))}">${effDiscount(w)}%${discountList(w).length>1?` <span class="tiny muted">(${discountList(w).map(d=>d.pct+"%").join("+")})</span>`:""}</td>
             <td class="n" data-l="Orders">${n}</td>
             <td class="mono muted" data-l="PIN">${esc(w.pin)}</td>
             <td class="acts" style="text-align:right"><button class="btn xs" onclick="PartyForm.open('${w.id}')">Edit</button></td>
@@ -4669,47 +4730,178 @@ Views.parties = function(v){
 
 const PartyForm = {
   open(id){
-    const w = id ? party(id) : {code:'', pin:'', name:'', city:'', phone:'', discount:0, active:true};
+    const w = id ? party(id) : {code:'', name:'', city:'', phone:'', discount:0,
+                                discounts:[], active:true};
+    const list = discountList(w);
+    const rows = list.length ? list : [{name:'', pct:0}];
     Modal.show({
-      title: id?'Edit wholesaler':'New wholesaler', sub: id?w.code:'Creates a new portal login',
+      wide:true,
+      title: id?'Edit wholesaler':'New wholesaler',
+      sub: id ? w.code : 'Their portal login is set up separately, once this is saved',
       body:`
         <div class="row"><label class="fl"><span>Party code</span>
           <input id="p_code" value="${esc(w.code)}" style="text-transform:uppercase" placeholder="W04"></label>
-          <label class="fl"><span>PIN</span><input id="p_pin" value="${esc(w.pin)}" placeholder="4444"></label></div>
-        <label class="fl"><span>Firm name</span><input id="p_name" value="${esc(w.name)}"></label>
+          <label class="fl"><span>Firm name</span><input id="p_name" value="${esc(w.name)}"></label></div>
         <div class="row"><label class="fl"><span>City</span><input id="p_city" value="${esc(w.city||'')}"></label>
           <label class="fl"><span>WhatsApp no. (with country code)</span>
-            <input id="p_phone" value="${esc(w.phone||'')}" placeholder="9198…"></label></div>
-        <div class="row"><label class="fl"><span>Discount %</span>
-          <input type="number" id="p_disc" min="0" max="60" value="${num(w.discount)}"></label>
+            <input id="p_phone" value="${esc(w.phone||'')}" placeholder="9198…"></label>
           <label class="fl"><span>Status</span><select id="p_active">
             <option value="1" ${w.active!==false?'selected':''}>Active</option>
-            <option value="0" ${w.active===false?'selected':''}>On hold</option></select></label></div>`,
+            <option value="0" ${w.active===false?'selected':''}>On hold</option></select></label></div>
+
+        <div class="sec"><h4>Discounts</h4>
+          <p class="tiny muted" style="margin:-4px 0 10px">Each one comes off what is left after
+            the one above it, the way a trade discount is quoted. 50% + 10% + 2% is
+            <b>55.9%</b> off, not 62%.</p>
+          <div id="discrows">${rows.map(d=>PartyForm.discRow(d)).join('')}</div>
+          <button class="btn xs" style="margin-top:9px" onclick="PartyForm.addDisc()">+ Add discount</button>
+          <div class="mix" id="p_discsum" style="margin-top:11px"></div>
+        </div>
+
+        ${id ? `<div class="sec"><h4>Portal login</h4>
+          <div id="p_login"><p class="tiny muted" style="margin:0">Checking…</p></div>
+        </div>` : `<div class="sec"><h4>Portal login</h4>
+          <p class="tiny muted" style="margin:0">Save this wholesaler first, then reopen it to
+            create the ID and PIN they sign in with.</p></div>`}`,
       foot:`${id?`<button class="btn danger" onclick="PartyForm.del('${id}')">Delete</button>`:''}
             <div style="flex:1"></div>
             <button class="btn" onclick="Modal.close()">Cancel</button>
             <button class="btn accent" onclick="PartyForm.save('${id||''}')">Save</button>`
     });
+    PartyForm.discSum();
+    if(id) PartyForm.loginPanel(id, w);
+  },
+
+  discRow(d){
+    return `<div class="boxrow" style="margin-bottom:7px" data-discrow>
+      <input placeholder="What it is for — Trade, Cash, Scheme…" data-dn
+             value="${esc(d.name||'')}" oninput="PartyForm.discSum()">
+      <input type="number" min="0" max="99" step="0.5" data-dp style="max-width:92px"
+             value="${d.pct||''}" placeholder="%" oninput="PartyForm.discSum()">
+      <button class="btn xs ghost" onclick="this.parentElement.remove();PartyForm.discSum()">×</button>
+    </div>`;
+  },
+  addDisc(){
+    $('#discrows').insertAdjacentHTML('beforeend', PartyForm.discRow({name:'',pct:0}));
+    PartyForm.discSum();
+  },
+  readDisc(){
+    return $$('[data-discrow]').map(r=>({
+      name: (r.querySelector('[data-dn]').value||'').trim(),
+      pct:  Math.max(0, Math.min(99, Number(r.querySelector('[data-dp]').value) || 0))
+    })).filter(d=>d.pct > 0);
+  },
+  discSum(){
+    const list = PartyForm.readDisc();
+    const el = $('#p_discsum'); if(!el) return;
+    if(!list.length){ el.innerHTML = 'No discount — this party pays the list rate.'; return; }
+    const eff = effDiscount({discounts:list});
+    const steps = list.map(d=>`<b>${d.pct}%</b>${d.name?' '+esc(d.name):''}`).join(' &nbsp;+&nbsp; ');
+    el.innerHTML = `${steps} &nbsp;=&nbsp; <b>${eff}% off</b>`
+      + `<br><span class="tiny">A ₹1,000 style costs them ${money(Math.round(1000*(100-eff)/100))}.</span>`;
+  },
+
+  /** What this party signs in with, and the controls to set it up. */
+  async loginPanel(id, w){
+    const box = $('#p_login'); if(!box) return;
+    if(!CLOUD){ box.innerHTML = '<p class="tiny muted" style="margin:0">Logins are managed by the shared database.</p>'; return; }
+    let row = null, err = null;
+    try{
+      const all = await Cloud.rpc('list_logins', {});
+      row = (all||[]).find(r=>r.wholesaler_id === id) || null;
+    }catch(e){ err = e.message; }
+    if(!$('#p_login')) return;                       // dialog closed while waiting
+
+    if(err && /list_logins|does not exist|schema/i.test(err)){
+      box.innerHTML = `<div class="warnbox" style="margin:0">Login management needs one setup step.
+        Run <span class="mono">db/SETUP-RUN-THIS.sql</span> in Supabase once, then reopen this.</div>`;
+      return;
+    }
+    if(err){ box.innerHTML = `<div class="warnbox" style="margin:0">${esc(err)}</div>`; return; }
+
+    const suggested = (w.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);
+    box.innerHTML = row
+      ? `<div class="okbox" style="margin:0 0 12px">Signs in as <b class="mono">${esc(row.code)}</b>
+           ${row.last_sign_in ? '· last signed in ' + fmtDateTime(row.last_sign_in)
+                              : '· has not signed in yet'}</div>
+         <div style="display:flex; gap:8px; flex-wrap:wrap">
+           <button class="btn sm" onclick="PartyForm.makeLogin('${id}','${esc(row.code)}')">Change ID or PIN</button>
+         </div>`
+      : `<p class="tiny muted" style="margin:0 0 10px">This wholesaler has <b>no login yet</b> —
+           they cannot sign in until you create one.</p>
+         <button class="btn accent sm" onclick="PartyForm.makeLogin('${id}','${esc(suggested)}')">
+           Create their login</button>`;
+  },
+
+  /** Set the ID and PIN this wholesaler signs in with. */
+  makeLogin(id, code){
+    const w = party(id) || {};
+    const pin = String(Math.floor(100000 + Math.random()*900000));   // a suggestion, editable
+    Modal.show({
+      title:'Portal login', sub:`${w.code||''} · ${w.name||''}`,
+      body:`<div class="row">
+              <label class="fl"><span>Login ID they type</span>
+                <input id="g_code" value="${esc(code||'')}" maxlength="12" spellcheck="false"
+                       style="text-transform:uppercase"></label>
+              <label class="fl"><span>PIN — 6 to 12 numbers</span>
+                <input id="g_pin" value="${pin}" inputmode="numeric" pattern="[0-9]*"
+                       maxlength="12" data-pinbox spellcheck="false"></label>
+            </div>
+            <p class="tiny muted" style="margin:0 0 4px">Write these down now and give them to the
+              wholesaler yourself. The PIN cannot be read back afterwards — only replaced.</p>
+            <div class="err" id="g_err" role="alert" aria-live="assertive"></div>`,
+      foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
+            <button class="btn accent" id="g_go" onclick="PartyForm.saveLogin('${id}')">Save login</button>`
+    });
+    Logins.digitsOnly();
+  },
+  async saveLogin(id){
+    const code = ($('#g_code').value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const pin  = ($('#g_pin').value||'').replace(/\D/g,'');
+    const err  = $('#g_err');
+    if(!/^[A-Z0-9]{2,12}$/.test(code)){ err.textContent = 'Login ID: 2 to 12 letters or numbers.'; return; }
+    if(!/^[0-9]{6,12}$/.test(pin)){ err.textContent = 'PIN: 6 to 12 numbers.'; return; }
+    const btn = $('#g_go'); btn.disabled = true; btn.textContent = 'Saving…';
+    try{
+      await Cloud.rpc('create_login', {p_wholesaler:id, p_code:code, p_pin:pin});
+      Modal.close();
+      Modal.show({
+        title:'Login ready', sub:'Give these to the wholesaler yourself',
+        body:`<div class="kv">
+                <div><div class="k">Login ID</div><div class="v mono" style="font-size:19px">${esc(code)}</div></div>
+                <div><div class="k">PIN</div><div class="v mono" style="font-size:19px">${esc(pin)}</div></div>
+              </div>
+              <p class="tiny muted" style="margin:14px 0 0">Write them down before you close this.
+                The PIN is stored scrambled and cannot be shown again.</p>`,
+        foot:`<button class="btn accent" onclick="Modal.close();Nav.refresh()">Done</button>`
+      });
+    }catch(e){ err.textContent = e.message; btn.disabled = false; btn.textContent = 'Save login'; }
   },
   save(id){
     const code = ($('#p_code').value||'').trim().toUpperCase();
-    const pin  = ($('#p_pin').value||'').trim();
     const name = ($('#p_name').value||'').trim();
-    if(!code || !pin || !name){ toast('Code, PIN and firm name are required', true); return; }
+    if(!code || !name){ toast('Party code and firm name are required', true); return; }
     if(code === 'ADMIN'){ toast('ADMIN is reserved for the office desk', true); return; }
     const clash = DB.wholesalers.find(w=>w.code.toUpperCase()===code && w.id!==id);
     if(clash){ toast('That party code is already in use', true); return; }
 
+    const discounts = PartyForm.readDisc();
     const rec = {
-      id: id || uid('w'), code, pin, name,
+      id: id || uid('w'), code, name,
       city:  ($('#p_city').value||'').trim(),
       phone: ($('#p_phone').value||'').replace(/[^0-9]/g,''),
-      discount: clamp(num($('#p_disc').value),0,60),
+      discounts,
+      // the chained total, kept in step because this is the figure the database
+      // prices orders with — the breakdown above it is for people to read
+      discount: effDiscount({discounts}),
       active: $('#p_active').value === '1'
     };
     if(id){ Object.assign(party(id), rec); } else DB.wholesalers.push(rec);
     Store.save(); Sync.push('upsertParty', {party:rec});
-    Modal.close(); Nav.refresh(); toast('Wholesaler saved');
+    Modal.close(); Nav.refresh();
+    toast(discounts.length > 1
+      ? `${code} saved · ${discountText(rec)}`
+      : 'Wholesaler saved');
   },
   del(id){
     const w = party(id);
@@ -5283,7 +5475,7 @@ const Preview = {
     Cart.clear(true);                     // never carry a draft into a preview
     $('#roleLbl').textContent = 'Preview';
     $('#whoName').textContent = w.name;
-    $('#whoSub').textContent  = [w.code, w.city, (num(w.discount)||0)+'% off']
+    $('#whoSub').textContent  = [w.code, w.city, discountText(w)]
                                   .filter(Boolean).join(' · ');
     Preview.banner();
     Nav.build();
@@ -5372,7 +5564,7 @@ Views.preview = function(v){
       <div class="sg-head"><div><h4>${esc(w.name)}</h4>
         <div class="tiny muted mono">${esc(w.code)}${w.city?' · '+esc(w.city):''}</div></div>
         <div class="spacer" style="flex:1"></div>
-        <span class="chip">${num(w.discount)}% off</span></div>
+        <span class="chip" title="${esc(discountText(w))}">${effDiscount(w)}% off</span></div>
       <div class="tiny muted">${seen} style${seen===1?'':'s'} visible to this party</div>
       <div style="margin-top:13px">
         <button class="btn accent sm" onclick="Preview.enter('${w.id}')">Open their catalogue</button>
