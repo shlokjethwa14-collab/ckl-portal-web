@@ -511,6 +511,11 @@ td.n,th.n{text-align:right; font-family:var(--f-mono); font-variant-numeric:tabu
   -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
   -webkit-user-drag:none}
 
+/* Search hides rows rather than rebuilding them. `hidden` has to win against
+   the stacking-table rule that turns rows into blocks, hence !important. */
+[hidden]{display:none !important}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none; appearance:none}
+
 /* misc */
 .hr{height:1px; background:var(--line-2); margin:18px 0}
 .sub{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px}
@@ -3798,13 +3803,13 @@ Views.orders = function(v){
       <button role="tab" data-og="active">In the factory (${open.length})</button>
       <button role="tab" data-og="history">History (${done.length})</button>
     </div>
-    <div class="tools rv">
-      <select id="fp" style="min-width:190px"><option value="">All parties</option>
-        ${DB.wholesalers.map(w=>`<option value="${w.id}">${esc(w.code)} · ${esc(w.name)}</option>`).join('')}
-      </select>
-      <select id="fs"></select>
-      <input class="grow" id="fq" placeholder="Search order no. or article…" autocomplete="off">
-    </div>
+    ${Find.bar('Order number, party, style or shade…', `
+      <label class="fl" style="margin:0"><span>Party</span>
+        <select id="fp" style="min-width:180px"><option value="">All parties</option>
+          ${DB.wholesalers.map(w=>`<option value="${w.id}">${esc(w.code)} · ${esc(w.name)}</option>`).join('')}
+        </select></label>
+      <label class="fl" style="margin:0"><span>Status</span><select id="fs"></select></label>`)}
+    ${Find.none()}
     <div class="glass tbl-wrap rv" id="ot"></div>`;
 
   const fsFill = () => {
@@ -3816,11 +3821,11 @@ Views.orders = function(v){
   const paint = () => {
     const grp = Views.orders.group==='active' ? OPEN_ST : ['Dispatched','Cancelled'];
     $$('[data-og]').forEach(b=>b.setAttribute('aria-selected', b.dataset.og===Views.orders.group));
-    const p = $('#fp').value, s = $('#fs').value, q = ($('#fq').value||'').toLowerCase().trim();
+    // the selects decide which rows exist; the search box only hides them,
+    // so typing never rebuilds the table under you
+    const p = $('#fp').value, s = $('#fs').value;
     const rows = DB.orders.filter(o =>
-      grp.includes(o.status) &&
-      (!p || o.partyId===p) && (!s || o.status===s) &&
-      (!q || (o.id+' '+o.partyName+' '+o.lines.map(l=>l.code+l.name).join(' ')).toLowerCase().includes(q)));
+      grp.includes(o.status) && (!p || o.partyId===p) && (!s || o.status===s));
     const box = $('#ot');
     if(!rows.length){
       box.innerHTML = Views.orders.group==='active'
@@ -3835,7 +3840,10 @@ Views.orders = function(v){
     box.innerHTML = `<div class="tbl-scroll"><table class="data stacks">
       <thead><tr><th>Order</th><th>Party</th><th>Placed</th><th class="n">Pcs</th>
         <th class="n">Value</th><th>Status</th><th></th></tr></thead>
-      <tbody>${rows.map(o=>`<tr class="clickable" onclick="OrderModal.open('${o.id}')">
+      <tbody>${rows.map(o=>`<tr class="clickable" onclick="OrderModal.open('${o.id}')"
+        data-find="${esc([o.id, o.partyCode, o.partyName, o.status,
+          o.lines.map(l=>l.code+' '+l.name+' '+l.colour+' '+l.size).join(' ')
+        ].filter(Boolean).join(' ').toLowerCase())}">
         <td class="mono" data-l="Order">${esc(o.id)}</td>
         <td data-l="Party"><b>${esc(o.partyCode)}</b> <span class="muted">${esc(o.partyName)}</span></td>
         <td data-l="Placed">${fmtDateTime(o.date)}</td>
@@ -3849,13 +3857,14 @@ Views.orders = function(v){
             : ''}<button class="btn xs"
             onclick="event.stopPropagation();WA.send('${o.id}')">WhatsApp</button></td>
       </tr>`).join('')}</tbody></table></div>`;
+    Find.apply();          // rebuilt rows must respect the search still in the box
   };
-  $('#fp').onchange = paint; $('#fs').onchange = paint; $('#fq').oninput = paint;
+  $('#fp').onchange = paint; $('#fs').onchange = paint;
   $$('[data-og]').forEach(b=>b.onclick = () => {
     Views.orders.group = b.dataset.og;
     fsFill(); paint();
   });
-  fsFill(); paint(); runCountUps(v);
+  fsFill(); paint(); Find.wire('order'); runCountUps(v);
 };
 
 /* order detail modal */
@@ -4134,7 +4143,8 @@ Views.plan = function(v){
       <div class="glass stat rv"><div class="k">Articles</div><div class="v" data-cu="${ids.length}">0</div></div>
       <div class="glass stat accent rv"><div class="k">Pieces to cut</div>
         <div class="v" data-cu="${totalPcs}">0</div></div>
-    </div>`;
+    </div>
+    ${ids.length ? Find.bar('Style number, name or shade…') + Find.none() : ''}`;
 
   if(!ids.length){
     v.insertAdjacentHTML('beforeend', `<div class="glass empty rv">
@@ -4145,7 +4155,8 @@ Views.plan = function(v){
   v.insertAdjacentHTML('beforeend', `<div class="stockgrid">${ids.map(aid=>{
     const A = agg[aid], a = article(aid);
     const sizes = a ? a.sizes : [...new Set(open.flatMap(o=>o.lines.filter(l=>l.articleId===aid).map(l=>l.size)))];
-    return `<div class="glass sg-art rv">
+    return `<div class="glass sg-art rv" data-find="${esc([A.code, A.name,
+        Object.keys(A.cols).join(' '), sizes.join(' ')].filter(Boolean).join(' ').toLowerCase())}">
       <div class="sg-head"><div><h4>${esc(A.name)}</h4>
         <div class="tiny muted mono">${esc(A.code)}</div></div>
         <div class="spacer" style="flex:1"></div>
@@ -4160,6 +4171,7 @@ Views.plan = function(v){
         }).join('')}</tbody></table></div>
     </div>`;
   }).join('')}</div>`);
+  Find.wire('style');
   runCountUps(v);
 };
 
@@ -4176,6 +4188,7 @@ Views.stock = function(v){
       <p>Buyers can never order past these numbers. Use Receive when goods come in,
          Dispatch when they leave outside a portal order.</p></div>
       <div class="spacer" style="flex:1"></div>
+      <span class="csave" id="stkSave" data-s="saved">Saved</span>
       <button class="btn sm" onclick="Stock.saveAll()">Save all</button></div>
     <div class="stats">
       <div class="glass stat rv"><div class="k">Pieces in hand</div><div class="v" data-cu="${totalPcs}">0</div></div>
@@ -4183,7 +4196,9 @@ Views.stock = function(v){
       <div class="glass stat accent rv"><div class="k">Low cells</div><div class="v" data-cu="${lowCells}">0</div>
         <div class="s">12 pcs or fewer</div></div>
       <div class="glass stat rv"><div class="k">Sold out</div><div class="v" data-cu="${outArts}">0</div></div>
-    </div>`;
+    </div>
+    ${Find.bar('Style number, name or shade…')}
+    ${Find.none()}`;
 
   // styles not yet tracked — one tap starts ready-stock for them, so adding
   // stock to an existing style never requires a trip through the Articles form
@@ -4204,7 +4219,8 @@ Views.stock = function(v){
   }
 
   v.insertAdjacentHTML('beforeend', `<div class="stockgrid">${ready.map(a=>`
-    <div class="glass sg-art rv">
+    <div class="glass sg-art rv" data-find="${esc([a.code,a.name,a.fabric,a.segment,
+        (a.colours||[]).join(' '),(a.sizes||[]).join(' ')].filter(Boolean).join(' ').toLowerCase())}">
       <div class="sg-head">
         <div><h4>${esc(a.name)}</h4><div class="tiny muted mono">${esc(a.code)}</div></div>
         <div class="spacer" style="flex:1"></div>
@@ -4226,16 +4242,47 @@ Views.stock = function(v){
           <td style="text-align:center" class="mono"><b>${a.sizes.reduce((t,z)=>t+num(a.stock[c+'|'+z]),0)}</b></td>
         </tr>`).join('')}</tbody></table></div>
     </div>`).join('')}</div>${bookingHTML}`);
+  Find.wire('style');
   runCountUps(v);
 };
 
 const Stock = {
+  /* A typed stock figure used to reach memory and this device only — the
+     database heard nothing until somebody remembered to press Save all. Any
+     refresh in between pulled the older figures back down and the typing was
+     gone. It now saves itself, debounced so a burst of edits is one write. */
+  _pending:new Set(), _timer:null,
   set(inp){
     const a = article(inp.dataset.sa); if(!a) return;
     const q = Math.max(0, num(inp.value));
     inp.value = q;
     a.stock[inp.dataset.sc+'|'+inp.dataset.sz] = q;
     Store.save();
+    Stock.queue(a);
+  },
+  queue(a){
+    Stock._pending.add(a);
+    Stock.mark('saving');
+    clearTimeout(Stock._timer);
+    Stock._timer = setTimeout(Stock.flush, 900);
+  },
+  async flush(){
+    const list = [...Stock._pending]; Stock._pending.clear();
+    if(!list.length) return;
+    let failed = 0;
+    for(const a of list){
+      try{
+        if(CLOUD) await Cloud.saveArticle(a);
+        else Sync.push('upsertArticle', {article:a});
+      }catch(e){ failed++; Stock._pending.add(a); }   // keep it for the next try
+    }
+    Stock.mark(failed ? 'failed' : 'saved');
+  },
+  mark(state){
+    const el = $('#stkSave'); if(!el) return;
+    el.dataset.s = state;
+    el.textContent = state==='saving' ? 'Saving…'
+                   : state==='failed' ? 'Not saved — check your connection' : 'Saved';
   },
   fill(aid){
     const a = article(aid); if(!a) return;
@@ -4254,10 +4301,16 @@ const Stock = {
     Store.save(); Sync.push('upsertArticle', {article:a});
     Modal.close(); Nav.refresh(); toast(`${a.code} filled to ${q} per cell`);
   },
-  saveAll(){
+  async saveAll(){
     Store.save();
-    DB.articles.filter(a=>a.stockMode==='ready').forEach(a=>Sync.push('upsertArticle',{article:a}));
-    toast('Stock saved');
+    clearTimeout(Stock._timer);
+    const ready = DB.articles.filter(a=>a.stockMode==='ready');
+    ready.forEach(a=>Stock._pending.add(a));
+    Stock.mark('saving');
+    await Stock.flush();
+    toast(Stock._pending.size
+      ? `${Stock._pending.size} style${Stock._pending.size===1?'':'s'} could not be saved — check your connection`
+      : 'Stock saved', !!Stock._pending.size);
   },
 
   /** Flip a booking style to ready stock, seeded at zero, straight from here. */
@@ -4591,6 +4644,8 @@ Views.parties = function(v){
     <div class="head"><div><h2>Wholesalers</h2><p>Login codes, discounts and exclusive access.</p></div>
       <div class="spacer" style="flex:1"></div>
       <button class="btn accent sm" onclick="PartyForm.open()">Add wholesaler</button></div>
+    ${Find.bar('Code, party name or city…')}
+    ${Find.none()}
     <div class="glass tbl-wrap rv">
       ${!DB.wholesalers.length ? `<div class="empty"><h4>No wholesalers</h4><p>Add your first party.</p></div>` :
       `<div class="tbl-scroll"><table class="data stacks">
@@ -4598,7 +4653,8 @@ Views.parties = function(v){
           <th class="n">Orders</th><th>PIN</th><th></th></tr></thead>
         <tbody>${DB.wholesalers.map(w=>{
           const n = DB.orders.filter(o=>o.partyId===w.id).length;
-          return `<tr><td class="mono" data-l="Code"><b>${esc(w.code)}</b></td>
+          return `<tr data-find="${esc([w.code,w.name,w.city,w.state].filter(Boolean).join(' ').toLowerCase())}">
+            <td class="mono" data-l="Code"><b>${esc(w.code)}</b></td>
             <td data-l="Party">${esc(w.name)} ${w.active===false?'<span class="chip">On hold</span>':''}</td>
             <td class="muted" data-l="City">${esc(w.city||'—')}</td>
             <td class="n" data-l="Discount">${num(w.discount)}%</td>
@@ -4608,6 +4664,7 @@ Views.parties = function(v){
           </tr>`;
         }).join('')}</tbody></table></div>`}
     </div>`;
+  Find.wire('wholesaler');
 };
 
 const PartyForm = {
@@ -4672,12 +4729,16 @@ Views.articles = function(v){
     <div class="head"><div><h2>Articles</h2><p>Catalogue masters — rates, shades, sizes, boxes and photos.</p></div>
       <div class="spacer" style="flex:1"></div>
       <button class="btn accent sm" onclick="ArtForm.open()">Add article</button></div>
+    ${Find.bar('Style number, name, fabric or shade…')}
+    ${Find.none()}
     <div class="glass tbl-wrap rv">
       ${!DB.articles.length ? `<div class="empty"><h4>No articles</h4><p>Add your first style.</p></div>` :
       `<div class="tbl-scroll"><table class="data stacks">
         <thead><tr><th>Photo</th><th>Code</th><th>Article</th><th>Fabric</th><th class="n">Rate</th><th class="n">MOQ</th>
           <th>Mode</th><th>Availability</th><th>Access</th><th></th></tr></thead>
-        <tbody>${DB.articles.map(a=>`<tr>
+        <tbody>${DB.articles.map(a=>`<tr data-find="${esc([a.code,a.name,a.fabric,a.segment,
+            (a.colours||[]).join(' '),(a.sizes||[]).join(' '),
+            isReady(a)?'ready stock':'booking'].filter(Boolean).join(' ').toLowerCase())}">
           <td data-l="Photo"><div class="rowpic" id="rp_${a.id}" data-pv="${a.id}"
             ${(a.photoIds||[]).length?'title="Click to view"':''}>${(a.photoIds||[]).length
               ? '' : '<span>none</span>'}</div></td>
@@ -4699,6 +4760,7 @@ Views.articles = function(v){
     </div>
     <p class="tiny muted rv" style="margin:10px 0 0">Photos are shared with every wholesaler.
       Check <b>Preview</b> to confirm what they can actually see.</p>`;
+  Find.wire('style');
   // thumbnails load after the table, from this device or the shared database
   DB.articles.forEach(async a=>{
     const k = (a.photoIds||[])[0]; if(!k) return;
@@ -4925,6 +4987,92 @@ const ArtForm = {
 };
 
 /* ============================================================================
+   FIND — one search box, the same on every office screen.
+
+   It filters by HIDING rows, never by re-rendering. That matters: the stock
+   screen holds numbers you are part-way through typing, and rebuilding the
+   grid under your hands would throw them away. Hiding leaves every input,
+   every cursor position and every scroll offset exactly where it was.
+
+   Each screen tags its rows or cards with data-find="<searchable text>".
+   All the words you type must appear somewhere in that text, so "black xl"
+   narrows further than "black" instead of matching more.
+   ========================================================================== */
+const Find = {
+  q:{},                                   // per screen, so it survives navigation
+
+  get(){ return Find.q[Nav.cur] || ''; },
+  set(v){ Find.q[Nav.cur] = v; },
+
+  /** The toolbar. `extra` slots in any per-screen filters. */
+  bar(hint, extra){
+    return `<div class="tools" role="search">
+        <label class="fl grow" style="margin:0"><span>Search</span>
+          <input id="fnd" type="search" value="${esc(Find.get())}" autocomplete="off"
+                 enterkeyhint="search" placeholder="${esc(hint)}" aria-describedby="fndCount"></label>
+        ${extra || ''}
+        <button class="btn sm ghost" id="fndClr" type="button" hidden>Clear</button>
+      </div>
+      <p class="tiny muted" id="fndCount" role="status" aria-live="polite"
+         style="margin:0 0 12px"></p>`;
+  },
+
+  /** Call once after the screen has rendered its rows. */
+  wire(noun){
+    const inp = $('#fnd'); if(!inp) return;
+    Find._noun = noun || 'item';
+    let t = null;
+    inp.oninput = ()=>{ clearTimeout(t); t = setTimeout(()=>{
+      Find.set(inp.value); Find.apply();
+    }, 180); };
+    const clr = $('#fndClr');
+    if(clr) clr.onclick = ()=>{ inp.value=''; Find.set(''); Find.apply(); inp.focus(); };
+    Find.apply();
+  },
+
+  /** Show or hide the tagged rows. Never touches their contents. */
+  apply(){
+    const q = Find.get().toLowerCase().trim();
+    const terms = q ? q.split(/\s+/) : [];
+    const rows = $$('[data-find]');
+    let shown = 0;
+    rows.forEach(el=>{
+      const hay = el.dataset.find || '';
+      const hit = terms.every(t=>hay.includes(t));
+      el.hidden = !hit;
+      if(hit) shown++;
+    });
+    // a group whose every child is hidden should go too, or the page keeps
+    // empty headings and gaps where the matches used to be
+    $$('[data-findgroup]').forEach(g=>{
+      g.hidden = !$$('[data-find]', g).some(c=>!c.hidden);
+    });
+    const c = $('#fndCount');
+    const noun = n => `${n} ${Find._noun}${n===1?'':'s'}`;
+    if(c) c.textContent = terms.length
+      ? `${noun(shown)} of ${rows.length} · “${Find.get().trim()}”`
+      : noun(rows.length);
+    const clr = $('#fndClr'); if(clr) clr.hidden = !terms.length;
+    const none = $('#fndNone');
+    if(none) none.hidden = !(terms.length && shown===0);
+  },
+
+  /** The "nothing matched" block every screen can drop in. */
+  none(){
+    return `<div class="glass empty rv" id="fndNone" hidden style="margin-top:4px">
+      <h4>Nothing matches your search</h4>
+      <p>Try fewer words, or check the spelling.</p>
+      <div style="margin-top:14px"><button class="btn" onclick="Find.reset()">Clear search</button></div>
+    </div>`;
+  },
+  reset(){
+    const inp = $('#fnd'); if(inp) inp.value = '';
+    Find.set(''); Find.apply();
+    if(inp) inp.focus();
+  }
+};
+
+/* ============================================================================
    LOGINS — change a login ID, change your own PIN, reset somebody else's.
 
    Passwords are stored by the database as one-way hashes: nothing here, and
@@ -5054,11 +5202,16 @@ Views.logins = function(v){
          be replaced but never read back, not even here.</p></div>
       <div class="spacer" style="flex:1"></div>
       <button class="btn sm" onclick="Logins.ownPin()">Change my PIN</button></div>
+    ${Find.bar('Login ID, role or party…')}
+    ${Find.none()}
     <div id="lgBody"><div class="glass empty rv"><h4>Loading…</h4></div></div>`;
 
   Logins.load().then(()=>{
     const box = $('#lgBody'); if(!box) return;
     if(Logins.err){
+      // nothing to search through, so the search box would just be a dead end
+      const bar = $('#fnd'); if(bar) bar.closest('.tools').hidden = true;
+      const cnt = $('#fndCount'); if(cnt) cnt.hidden = true;
       const missing = /list_logins|does not exist|schema/i.test(Logins.err);
       // Lead with what works. The missing piece only affects managing OTHER
       // people's logins — changing your own PIN needs nothing set up at all.
@@ -5090,7 +5243,8 @@ Views.logins = function(v){
         <tbody>${rows.map(r=>{
           const w = r.wholesaler_id ? party(r.wholesaler_id) : null;
           const me = r.id === Cloud.uid;
-          return `<tr>
+          return `<tr data-find="${esc([r.code, r.role, w?w.name:'office', w?w.city:'']
+              .filter(Boolean).join(' ').toLowerCase())}">
             <td class="mono" data-l="Login ID"><b>${esc(r.code)}</b>${me?' <span class="chip">You</span>':''}</td>
             <td data-l="Role"><span class="chip ${r.role==='ADMIN'?'red':''}">${esc(r.role)}</span></td>
             <td data-l="Party">${w ? esc(w.name) : '<span class="muted">Office</span>'}</td>
@@ -5103,6 +5257,7 @@ Views.logins = function(v){
         }).join('')}</tbody></table></div></div>
       <p class="tiny muted rv" style="margin:11px 0 0">A new PIN takes effect immediately.
         Anyone already signed in stays signed in until they sign out.</p>`;
+    Find.wire('login');
   });
 };
 
@@ -5205,12 +5360,15 @@ Views.preview = function(v){
     <div class="glass rv" id="pvPhotos" style="padding:16px 18px; margin-bottom:14px">
       <div class="eyebrow">Product photos</div>
       <p class="tiny muted" style="margin:6px 0 0">Checking…</p></div>
+    ${Find.bar('Code, party name or city…')}
+    ${Find.none()}
     <div class="cards" id="pvList"></div>`;
 
   $('#pvList').innerHTML = list.length ? list.map(w=>{
     const seen = DB.articles.filter(a => a.active!==false &&
       (a.visibility==='common' || (a.parties||[]).includes(w.id))).length;
-    return `<div class="glass sg-art rv">
+    return `<div class="glass sg-art rv" data-find="${esc([w.code,w.name,w.city,w.state]
+        .filter(Boolean).join(' ').toLowerCase())}">
       <div class="sg-head"><div><h4>${esc(w.name)}</h4>
         <div class="tiny muted mono">${esc(w.code)}${w.city?' · '+esc(w.city):''}</div></div>
         <div class="spacer" style="flex:1"></div>
@@ -5221,6 +5379,7 @@ Views.preview = function(v){
       </div></div>`;
   }).join('') : `<div class="glass empty rv" style="grid-column:1/-1">
       <h4>No wholesalers yet</h4><p>Add a party first, then you can preview what they see.</p></div>`;
+  Find.wire('wholesaler');
 
   // photo sharing status, filled in once the database answers
   Preview.audit().then(a=>{
@@ -5262,10 +5421,14 @@ Views.boxes = function(v){
       <p>A fixed colour mix a buyer can order by the box, in one size.</p></div>
       <div class="spacer" style="flex:1"></div>
       <button class="btn accent sm" onclick="BoxForm.open()">Add box type</button></div>
+    ${Find.bar('Box name, note or a shade in the mix…')}
+    ${Find.none()}
     <div class="cards">${DB.boxTypes.map(b=>{
       const per = b.mix.reduce((t,m)=>t+m.qty,0);
       const used = DB.articles.filter(a=>(a.boxTypeIds||[]).includes(b.id));
-      return `<div class="glass sg-art sheen rv"><div class="sheen-l"></div>
+      return `<div class="glass sg-art sheen rv" data-find="${esc([b.name, b.note,
+          (b.mix||[]).map(m=>m.colour).join(' '), used.map(a=>a.code).join(' ')
+        ].filter(Boolean).join(' ').toLowerCase())}"><div class="sheen-l"></div>
         <div class="sg-head"><div><h4>${esc(b.name)}</h4>
           <div class="tiny muted">${esc(b.note||'')}</div></div>
           <div class="spacer" style="flex:1"></div>
@@ -5283,6 +5446,7 @@ Views.boxes = function(v){
     }).join('') || `<div class="glass empty rv" style="grid-column:1/-1">
         <h4>No box types</h4><p>Define a mix like “1 each of six shades”.</p></div>`}
     </div>`;
+  Find.wire('box type');
 };
 
 const BoxForm = {
@@ -6115,7 +6279,26 @@ const Brand = {
     Nav.refresh();
   },
 
-  async remove(){
+  /* Removing the logo throws away the only copy in the database. It used to go
+     on one click with nothing asked, so a stray tap wiped it and the only way
+     back was to find the original file and upload it again. */
+  remove(){
+    if(!(DB.settings && DB.settings.logo)){ toast('There is no uploaded logo to remove'); return; }
+    Modal.show({
+      title:'Remove your logo?',
+      sub:'The portal goes back to the built-in CKL mark',
+      body:`<div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap">
+              <div class="logo" data-logo style="padding:8px 12px; border-radius:12px;
+                   background:rgba(255,255,255,.55)"></div>
+              <p style="flex:1; min-width:200px; margin:0">This deletes the uploaded file from the
+                database. To get it back you would have to upload the original again.</p>
+            </div>`,
+      foot:`<button class="btn" onclick="Modal.close()">Keep my logo</button>
+            <button class="btn danger" onclick="Modal.close();Brand.doRemove()">Remove it</button>`
+    });
+    applyLogo();                       // paint the preview inside the dialog
+  },
+  async doRemove(){
     DB.settings.logo = '';
     applyLogo();
     if(CLOUD){
