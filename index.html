@@ -1050,6 +1050,23 @@ nav.tabs{position:static; top:auto}
 .boxpick .pill-list{gap:5px}
 .boxpick .boxrow input{width:74px; text-align:center}
 
+/* a box definition inside the article form */
+.boxdef{border-radius:var(--r-sm); padding:13px 14px; margin-bottom:10px;
+  background:rgba(255,255,255,.45); border:1px solid var(--line-2)}
+[data-theme="neu"] .boxdef{background:var(--nbg); border:0; box-shadow:var(--in-sm)}
+[data-theme="dark"] .boxdef{background:var(--n-lo); border:0; box-shadow:var(--in-sm)}
+.boxdef .boxrow select{flex:1; min-width:0}
+
+/* per-size rate boxes */
+.sizerates{display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:9px}
+.sizerates .fl>span{font-family:var(--f-display); font-weight:700; font-size:11.5px;
+  color:var(--ink-2); letter-spacing:.02em}
+.sizerates input{text-align:center; font-family:var(--f-mono)}
+
+/* the per-size rate shown beside a size in the ordering sheet */
+.szrate{font-family:var(--f-mono); font-size:11px; font-weight:500; color:var(--red-ink);
+  margin-left:6px}
+
 /* photo thumbnail in an admin table row */
 .rowpic{width:52px; height:52px; border-radius:9px; overflow:hidden; flex:none;
   background:rgba(120,130,155,.12); display:grid; place-items:center}
@@ -1612,7 +1629,32 @@ const Store = {
 /* lookups */
 const party   = id => DB.wholesalers.find(w=>w.id===id);
 const article = id => DB.articles.find(a=>a.id===id);
-const boxType = id => DB.boxTypes.find(b=>b.id===id);
+/* A box belongs to the style it packs. A "6-Colour Box" only means anything in
+   terms of that style's own shades, so the definition lives on the article
+   rather than in a shared list that could name colours the style does not have.
+   Lookup still goes by id, so every ordering and stock screen is unchanged;
+   only the place the ids are found has moved. DB.boxTypes is still consulted so
+   styles saved before this change keep working until they are next edited. */
+const boxType = id => {
+  if(!id) return null;
+  for(const a of (DB.articles||[])){
+    const hit = (a.boxes||[]).find(b=>b.id===id);
+    if(hit) return hit;
+  }
+  return (DB.boxTypes||[]).find(b=>b.id===id) || null;
+};
+/** Every box defined on a style, usable or not — the office needs to see all. */
+const boxesOf = a => (a && Array.isArray(a.boxes)) ? a.boxes.filter(b=>b && (b.mix||[]).length) : [];
+/* A box can only be packed if the style actually carries every shade it names.
+   The old shared box list made this easy to get wrong: a "6-Colour Box" naming
+   Dark Grey and Olive is meaningless on a style whose shades are DG and OC, and
+   a buyer choosing it would only ever be told there were none available. Those
+   boxes stay on the record so the office can correct them, but they are never
+   offered for ordering. */
+const boxFits = (a, b) => (b.mix||[]).length &&
+  b.mix.every(m => (a.colours||[]).includes(m.colour));
+const boxesUsable = a => boxesOf(a).filter(b => boxFits(a, b));
+const boxesBroken = a => boxesOf(a).filter(b => !boxFits(a, b));
 
 /* ============================================================================
    API client — the server is the source of truth.
@@ -1895,7 +1937,13 @@ const Cloud = {
   toArticle(a){
     return { id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
       rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
-      orderMode:a.order_mode||'loose', boxTypeIds:a.box_type_ids||[],
+      orderMode:a.order_mode||'loose',
+      // box_type_ids used to hold ids pointing at a shared table; it now holds
+      // the box definitions themselves. Old rows are converted on the way in,
+      // and are written back in the new shape the next time the style is saved.
+      boxes: Cloud.toBoxes(a.box_type_ids),
+      boxTypeIds: Cloud.toBoxes(a.box_type_ids).map(b=>b.id),
+      sizeRates: (a.size_rates && typeof a.size_rates === 'object') ? a.size_rates : {},
       visibility:a.visibility||'common', parties:a.parties||[],
       stockMode:a.stock_mode||'booking', stock:a.stock||{},
       photoIds:a.photo_ids||[], active:a.active !== false };
@@ -1903,11 +1951,28 @@ const Cloud = {
   fromArticle(a){
     return { id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
       rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
-      order_mode:a.orderMode||'loose', box_type_ids:a.boxTypeIds||[],
+      order_mode:a.orderMode||'loose', box_type_ids:boxesOf(a),
+      size_rates:a.sizeRates||{},
       visibility:a.visibility||'common', parties:a.parties||[],
       stock_mode:a.stockMode||'booking', stock:a.stock||{},
       photo_ids:a.photoIds||[], active:a.active !== false };
   },
+  /** Normalise whatever is in box_type_ids: legacy ids, or real definitions. */
+  toBoxes(raw){
+    const list = Array.isArray(raw) ? raw : [];
+    return list.map(b=>{
+      if(b && typeof b === 'object'){
+        return {id: b.id || uid('bx'), name: String(b.name||'Box'),
+                mix: (b.mix||[]).map(m=>({colour:String(m.colour||''), qty:num(m.qty)}))
+                       .filter(m=>m.colour && m.qty>0)};
+      }
+      const g = (DB && DB.boxTypes || []).find(x=>x.id === b);   // an old shared box
+      return g ? {id:g.id, name:g.name,
+                  mix:(g.mix||[]).map(m=>({colour:String(m.colour||''), qty:num(m.qty)}))
+                        .filter(m=>m.colour && m.qty>0)} : null;
+    }).filter(b=>b && b.mix.length);
+  },
+
   toParty(w){
     return { id:w.id, code:w.code, name:w.name, city:w.city, phone:w.phone,
       discount:Number(w.discount)||0, discounts:Array.isArray(w.discounts)?w.discounts:[],
@@ -1947,9 +2012,12 @@ const Cloud = {
     ]);
 
     DB = DB || {};
-    DB.articles    = (arts||[]).map(Cloud.toArticle);
+    // the old shared box list has to be in place first: styles saved before
+    // boxes moved onto the article still refer to it by id, and toArticle
+    // resolves those references as it reads each row
     DB.boxTypes    = (boxes||[]).map(b=>({id:b.id,name:b.name,note:b.note,
                        mix:(b.mix||[]).map(m=>({colour:m.colour, qty:num(m.qty)}))}));
+    DB.articles    = (arts||[]).map(Cloud.toArticle);
     DB.wholesalers = (parties||[]).map(Cloud.toParty);
     DB.orders      = (orders||[]).map(Cloud.toOrder);
     DB.settings    = {};
@@ -2330,7 +2398,6 @@ const TABS_A = [
   {id:'stock',    label:'Stock'},
   {id:'parties',  label:'Wholesalers'},
   {id:'articles', label:'Articles'},
-  {id:'boxes',    label:'Box types'},
   {id:'preview',  label:'Preview'},
   {id:'logins',   label:'Logins'},
   {id:'backup',   label:'Excel & backup'}
@@ -2447,10 +2514,33 @@ function discountText(w){
    to whole rupees here instead made the draft disagree with the confirmed
    order: at 55.9% off, 312 pieces came out ₹65 apart. The buyer must be quoted
    the number they will actually be charged. */
-function netRate(a){
-  if(!SESSION || SESSION.role==='admin') return a.rate;
+/* ------------------------------------------------------------- size rates
+   Most sizes share one rate; the big ones often cost more. A size with no
+   entry falls back to the style's rate, which is exactly what the database
+   does, so a style with no size rates behaves as it always has. */
+function listRate(a, size){
+  if(!a) return 0;
+  const r = a.sizeRates && a.sizeRates[size];
+  const n = Number(r);
+  return (r !== undefined && r !== null && r !== '' && isFinite(n) && n > 0) ? n : num(a.rate);
+}
+/** Does this style charge different rates for different sizes? */
+function hasSizeRates(a){
+  return (a.sizes||[]).some(z => listRate(a, z) !== num(a.rate));
+}
+/** The spread a buyer sees on the card, e.g. "395 - 445". */
+function rateRange(a){
+  const rates = (a.sizes||[]).map(z=>netRate(a, z));
+  const lo = Math.min(...rates), hi = Math.max(...rates);
+  return {lo, hi, varies: lo !== hi};
+}
+
+/* The net rate for one size, rounded the way the database rounds it. */
+function netRate(a, size){
+  const base = size === undefined ? num(a.rate) : listRate(a, size);
+  if(!SESSION || SESSION.role==='admin') return base;
   const w = party(SESSION.partyId);
-  return Math.round(a.rate * (100 - effDiscount(w))) / 100;
+  return Math.round(base * (100 - effDiscount(w))) / 100;
 }
 /** catalogue visible to the signed-in party */
 function visibleArticles(){
@@ -2470,14 +2560,31 @@ const Cart = {
   qtyOf(aid,c,z){ const e = Cart.data[aid]; return e ? num(e.lines[c+'|'+z]) : 0; },
   artQty(aid){ const e = Cart.data[aid]; if(!e) return 0;
     return Object.values(e.lines).reduce((t,q)=>t+num(q),0); },
+  /* Valued line by line, because a size can carry its own rate. Summing
+     pieces and multiplying by one rate would quietly misprice any style whose
+     3XL costs more than its M, and the database bills per line. */
   totals(){
     let pcs=0, val=0, arts=0;
     for(const aid in Cart.data){
       const a = article(aid); if(!a) continue;
-      const q = Cart.artQty(aid); if(!q) continue;
-      arts++; pcs += q; val += q * netRate(a);
+      const e = Cart.data[aid];
+      let q = 0;
+      for(const k in e.lines){
+        const n = num(e.lines[k]); if(!n) continue;
+        q += n;
+        val += n * netRate(a, k.split('|')[1]);
+      }
+      if(!q) continue;
+      arts++; pcs += q;
     }
-    return {pcs, val, arts};
+    return {pcs, val: Math.round(val * 100) / 100, arts};
+  },
+  /** What one style in the draft is worth, size by size. */
+  artValue(aid){
+    const a = article(aid), e = Cart.data[aid]; if(!a || !e) return 0;
+    let v = 0;
+    for(const k in e.lines) v += num(e.lines[k]) * netRate(a, k.split('|')[1]);
+    return Math.round(v * 100) / 100;
   },
   ensure(aid){ if(!Cart.data[aid]) Cart.data[aid] = {lines:{}, boxes:[]}; return Cart.data[aid]; },
   setLine(aid,c,z,q){
@@ -2821,11 +2928,12 @@ const Cart = {
 
     for(const aid in Cart.data){
       const a = article(aid); if(!a) continue;
-      const rate = netRate(a);
+      // no single rate: each line is priced for its own size
       const e = Cart.data[aid];
       Object.keys(e.lines).sort().forEach(k=>{
         const [colour,size] = k.split('|');
         const qty = num(e.lines[k]); if(!qty) return;
+        const rate = netRate(a, size);
         order.lines.push({articleId:a.id, code:a.code, name:a.name, colour, size, qty, rate});
         order.totalQty += qty; order.totalValue += qty*rate;
         decStock(a, colour, size, qty);
@@ -2991,10 +3099,11 @@ Views.catalogue.reset = function(){
 function cardHTML(a){
   const out  = soldOut(a);
   const rate = netRate(a);
+  const rr   = rateRange(a);
   const disc = party(SESSION.partyId) ? num(party(SESSION.partyId).discount) : 0;
   const modes = [];
   if(a.orderMode==='loose' || a.orderMode==='both') modes.push('loose');
-  if((a.orderMode==='box' || a.orderMode==='both') && (a.boxTypeIds||[]).length) modes.push('box');
+  if((a.orderMode==='box' || a.orderMode==='both') && boxesUsable(a).length) modes.push('box');
   const first = modes[0] || 'loose';
 
   return `
@@ -3014,7 +3123,7 @@ function cardHTML(a){
         <div><h3>${esc(a.name)}</h3><div class="code">${esc(a.code)} · ${esc(a.segment)}</div></div>
         <div class="price">
           ${disc ? `<div class="was">₹${a.rate}</div>` : ''}
-          <div class="r">${money(rate)}</div><div class="u">per pc net</div>
+          <div class="r">${rr.varies ? money(rr.lo)+"<span style=\"font-size:11px\">+</span>" : money(rate)}</div><div class="u">${rr.varies ? "from, per pc" : "per pc net"}</div>
         </div>
       </div>
       <div class="fabric">${esc(a.fabric)}</div>
@@ -3063,7 +3172,7 @@ function loosePaneHTML(a){
  * boxes are actually buildable from stock.
  */
 function boxPaneHTML(a){
-  const bts = (a.boxTypeIds||[]).map(boxType).filter(Boolean);
+  const bts = boxesUsable(a);
   if(!bts.length) return `<div class="mix">No box types assigned to this article.</div>`;
   const head = a.sizes.map(z=>`<th>${esc(z)}</th>`).join('');
   const rows = bts.map(b=>{
@@ -3139,7 +3248,7 @@ const Card = {
     const a = article(aid), el = $('#bi_'+aid); if(!a || !el) return;
     const cells = Card.boxCells(aid);
     if(!cells.length){
-      const bts = (a.boxTypeIds||[]).map(boxType).filter(Boolean);
+      const bts = boxesUsable(a);
       el.innerHTML = bts.map(b=>
         `<b>${esc(b.name)}</b>: ` + b.mix.map(m=>`${m.qty}× ${esc(m.colour)}`).join(', ')
       ).join('<br>') || 'Enter how many boxes of each size.';
@@ -3396,6 +3505,7 @@ function swatchOf(name){
 
 function tileHTML(a){
   const out = soldOut(a), rate = netRate(a), inCart = Cart.artQty(a.id);
+  const rr = rateRange(a);
   const shown = a.colours.slice(0,5);
   return `
   <button class="glass tile rv" data-tile="${a.id}" ${out?'disabled':''}
@@ -3414,7 +3524,7 @@ function tileHTML(a){
       <div class="sw">${shown.map(c=>`<i style="background:${swatchOf(c)}" title="${esc(c)}"></i>`).join('')}
         ${a.colours.length>shown.length ? `<span>+${a.colours.length-shown.length}</span>` : ''}</div>
       ${inCart ? `<div class="tdraft">${inCart} pcs in draft</div>` : ''}
-      <div class="trate">${money(rate)}<small>per pc net</small></div>
+      <div class="trate">${rr.varies ? money(rr.lo)+"+" : money(rate)}<small>${rr.varies ? "from, per pc" : "per pc net"}</small></div>
     </div>
   </button>`;
 }
@@ -3429,7 +3539,7 @@ const Sheet = {
     Sheet.aid = aid; Sheet.stage = {};
     const modes = [];
     if(a.orderMode==='loose' || a.orderMode==='both') modes.push('loose');
-    if((a.orderMode==='box' || a.orderMode==='both') && (a.boxTypeIds||[]).length) modes.push('box');
+    if((a.orderMode==='box' || a.orderMode==='both') && boxesUsable(a).length) modes.push('box');
     Sheet.mode = modes[0] || 'loose';
     Sheet.shade = a.colours.find(c => !isReady(a) || a.sizes.some(z=>freeStock(a,c,z)>0)) || a.colours[0];
 
@@ -3443,8 +3553,13 @@ const Sheet = {
           <div style="flex:1">
             <div class="eyebrow">Your net rate</div>
             <div class="num" style="font-size:24px; font-weight:500; letter-spacing:-.035em">
-              ${money(netRate(a))}<span style="font-size:11px; color:var(--faint)"> /pc</span></div>
-            ${disc ? `<div class="tiny muted">list ₹${a.rate} · ${disc}% off</div>` : ''}
+              ${rateRange(a).varies
+                ? money(rateRange(a).lo) + '<span style="font-size:14px; color:var(--muted)"> – '
+                  + money(rateRange(a).hi) + '</span>'
+                : money(netRate(a))}<span style="font-size:11px; color:var(--faint)"> /pc</span></div>
+            ${rateRange(a).varies
+              ? '<div class="tiny muted">the rate depends on the size — each one is shown below</div>'
+              : (disc ? `<div class="tiny muted">list ₹${a.rate} · ${discountText(party(SESSION.partyId))}</div>` : '')}
           </div>
           <div style="text-align:right">
             <span class="chip">MOQ ${a.moq}</span>
@@ -3468,6 +3583,13 @@ const Sheet = {
 
   /** Total pieces staged in the sheet right now. */
   staged(){ return Object.values(Sheet.stage).reduce((t,q)=>t+num(q),0); },
+  /** What those staged pieces come to, size by size. */
+  stagedValue(){
+    const a = article(Sheet.aid); if(!a) return 0;
+    let v = 0;
+    for(const z in Sheet.stage) v += num(Sheet.stage[z]) * netRate(a, z);
+    return Math.round(v * 100) / 100;
+  },
 
   paint(){
     const a = article(Sheet.aid); if(!a) return;
@@ -3476,7 +3598,7 @@ const Sheet = {
     if(Sheet.mode === 'box'){
       // same shape as the loose sheet: pick a box type, then step each size.
       // Sheet.stage holds BOXES here, keyed 'boxTypeId|size'.
-      const bts = (a.boxTypeIds||[]).map(boxType).filter(Boolean);
+      const bts = boxesUsable(a);
       if(!Sheet.boxType || !bts.some(b=>b.id===Sheet.boxType))
         Sheet.boxType = bts.length ? bts[0].id : null;
       pane.innerHTML = `
@@ -3512,8 +3634,11 @@ const Sheet = {
       const q = num(Sheet.stage[c+'|'+z]);
       const dead = left === 0;
       const lo = left !== null && left > 0 && left <= 12;
+      // when sizes are priced differently, each row says what it costs
+      const varies = rateRange(a).varies;
       return `<div class="szrow">
-        <div class="szl"><div class="szn">${esc(z)}</div>
+        <div class="szl"><div class="szn">${esc(z)}${varies
+            ? ` <span class="szrate">${money(netRate(a, z))}</span>` : ''}</div>
           <div class="szs ${lo?'lo':''} ${dead?'out':''}">${
             left===null ? 'Made to order' : (dead ? 'Sold out' : left+' left')}</div></div>
         <div class="stp">
@@ -3600,7 +3725,8 @@ const Sheet = {
       add.disabled = pcs <= 0 || !!blocked;
       add.textContent = pcs>0 && reach<num(a.moq)
         ? `Add ${pcs} · ${num(a.moq)-reach} short of MOQ`
-        : (pcs>0 ? `Add ${pcs} pcs · ${money(pcs*netRate(a))}` : 'Add to draft');
+        : (pcs>0 ? `Add ${pcs} pcs · ${money(Sheet.mode==='box'
+              ? pcs*netRate(a) : Sheet.stagedValue())}` : 'Add to draft');
     }
   },
 
@@ -3669,9 +3795,11 @@ Views.orderpad = function(v){
   const blocks = ids.map(aid=>{
     const a = article(aid); if(!a) return '';
     const q = Cart.artQty(aid), rate = netRate(a);
+    const varies = rateRange(a).varies;
     const short = q < num(a.moq) ? num(a.moq)-q : 0;
     const rows = Object.keys(Cart.data[aid].lines).sort().map(k=>{
       const [c,z] = k.split('|'); const n = Cart.data[aid].lines[k];
+      const lineRate = netRate(a, z);
       // shade/size are admin-entered text — they go in data attributes, never
       // interpolated into an onclick string (an apostrophe would break the JS)
       const cap = isReady(a) ? num(a.stock[k]) : null;
@@ -3685,7 +3813,7 @@ Views.orderpad = function(v){
           <button class="btn xs ghost" data-step="1" data-aid="${esc(aid)}"
                   data-c="${esc(c)}" data-z="${esc(z)}" aria-label="One more">+</button>
         </span>${cap!==null?`<div class="tiny muted mono" style="margin-top:2px">${cap} in stock</div>`:''}</td>
-        <td class="n">${money(n*rate)}</td>
+        <td class="n">${money(n*lineRate)}${varies ? `<div class="tiny muted mono" style="margin-top:2px">@${money(lineRate)}</div>` : ""}</td>
         <td style="text-align:right"><button class="btn xs ghost"
           data-rm data-aid="${esc(aid)}" data-c="${esc(c)}" data-z="${esc(z)}">Remove</button></td></tr>`;
     }).join('');
@@ -3697,7 +3825,7 @@ Views.orderpad = function(v){
     return `<div class="glass sg-art rv" style="margin-bottom:14px">
       <div class="sg-head">
         <div><h4>${esc(a.name)}</h4>
-          <div class="tiny muted mono">${esc(a.code)} · ${money(rate)}/pc</div></div>
+          <div class="tiny muted mono">${esc(a.code)} · ${varies ? money(rateRange(a).lo)+" – "+money(rateRange(a).hi) : money(rate)}/pc</div></div>
         <div class="spacer" style="flex:1"></div>
         ${short ? `<span class="chip red">MOQ short by ${short}</span>`
                 : `<span class="chip ok">MOQ ${a.moq} met</span>`}
@@ -4531,8 +4659,10 @@ const Stock = {
   },
   /* A box type is usable on an article when its shades exist on that article.
      A single-shade type is always usable — the shade is chosen at entry. */
+  /* The boxes this style is packed in. A single-shade box is a template whose
+     shade is chosen at entry, so it is offered whatever it happens to name. */
   usableTypes(a){
-    return (DB.boxTypes||[]).filter(b=>{
+    return boxesOf(a).filter(b=>{
       const mix = (b.mix||[]).filter(m=>m.colour && m.qty>0);
       if(!mix.length) return false;
       if(mix.length === 1) return true;
@@ -4972,7 +5102,9 @@ Views.articles = function(v){
           <td class="muted tiny" data-l="Fabric">${esc(a.fabric)}</td>
           <td class="n" data-l="Rate">${money(a.rate)}</td>
           <td class="n" data-l="MOQ">${a.moq}</td>
-          <td data-l="Mode"><span class="chip">${a.orderMode==='both'?'Loose + Box':(a.orderMode==='box'?'Box':'Loose')}</span></td>
+          <td data-l="Mode"><span class="chip">${a.orderMode==='both'?'Loose + Box':(a.orderMode==='box'?'Box':'Loose')}</span>
+            ${boxesBroken(a).length ? `<span class="chip red" title="Their shades are not on this style">
+              ${boxesBroken(a).length} box${boxesBroken(a).length===1?'':'es'} to fix</span>` : ''}</td>
           <td data-l="Stock">${isReady(a) ? (soldOut(a)?'<span class="chip red">Sold out</span>'
                 : `<span class="chip ok"><i class="dot"></i> ${totalStock(a)} pcs</span>`)
                 : '<span class="chip">Booking</span>'}</td>
@@ -5048,6 +5180,13 @@ const ArtForm = {
         <input id="a_cols" value="${esc(a.colours.join(', '))}" placeholder="Black, Navy, Dark Grey">
       </div>
 
+      <div class="sec"><h4>Size-wise rate</h4>
+        <p class="tiny muted" style="margin:-4px 0 9px">Leave a size blank and it uses the rate
+          above. Fill one in only where it differs — the bigger sizes usually.</p>
+        <div id="a_sizerates" class="sizerates"></div>
+        <div class="mix" id="a_ratesum" style="margin-top:10px"></div>
+      </div>
+
       <div class="sec"><h4>Ordering</h4>
         <div class="row">
           <label class="fl"><span>Order mode</span><select id="a_mode" onchange="ArtForm.modeChange()">
@@ -5059,12 +5198,16 @@ const ArtForm = {
             <option value="ready"   ${a.stockMode==='ready'?'selected':''}>Ready stock (capped)</option></select></label>
         </div>
         <div id="a_boxwrap">
-          <div class="eyebrow" style="margin-bottom:7px">Box types offered</div>
-          <div class="pill-list">${DB.boxTypes.map(b=>`
-            <label class="pick ${(a.boxTypeIds||[]).includes(b.id)?'on':''}">
-              <input type="checkbox" value="${b.id}" data-bt ${(a.boxTypeIds||[]).includes(b.id)?'checked':''}
-                onchange="this.parentElement.classList.toggle('on',this.checked)">${esc(b.name)}</label>`).join('')
-            || '<span class="tiny muted">No box types defined yet.</span>'}</div>
+          <div class="eyebrow" style="margin-bottom:4px">Boxes this style is packed in</div>
+          <p class="tiny muted" style="margin:0 0 9px">Each box is a fixed mix of this style's own
+            shades, in one size. A wholesaler ordering a box gets that whole mix.</p>
+          ${boxesBroken(a).length ? `<div class="warnbox" style="margin:0 0 10px">
+            ${boxesBroken(a).length} box${boxesBroken(a).length===1?'':'es'} below name a shade this
+            style does not carry, so ${boxesBroken(a).length===1?'it is':'they are'} not offered to
+            buyers. This style has ${esc((a.colours||[]).join(', '))}. Fix the shade or remove the
+            box.</div>` : ''}
+          <div id="a_boxes">${(a.boxes||[]).map(b=>ArtForm.boxCard(b, a)).join('')}</div>
+          <button class="btn xs" style="margin-top:9px" onclick="ArtForm.addBox()">+ Add a box</button>
         </div>
       </div>
 
@@ -5091,6 +5234,10 @@ const ArtForm = {
             <button class="btn accent" onclick="ArtForm.save('${id||''}')">Save article</button>`
     });
     ArtForm.modeChange(); ArtForm.visChange();
+    ArtForm.renderRates(a); ArtForm.allBoxSums();
+    // changing the size list has to rebuild the size-rate boxes underneath it
+    if($('#a_sizes')) $('#a_sizes').addEventListener('input', ()=>ArtForm.renderRates(a));
+    if($('#a_rate'))  $('#a_rate').addEventListener('input',  ()=>ArtForm.rateSum());
     ArtForm.gallery = (a.photoIds||[]).map(k=>({key:k, url:null, blob:null}));
     ArtForm.removed = [];
     ArtForm.renderGal();
@@ -5100,6 +5247,113 @@ const ArtForm = {
     const m = $('#a_mode').value;
     $('#a_boxwrap').style.display = (m==='box'||m==='both') ? '' : 'none';
   },
+
+  /* ---- boxes, defined against this style's own shades ---- */
+  shadesNow(){
+    return ($('#a_cols') ? $('#a_cols').value : '').split(',')
+      .map(s=>s.trim()).filter(Boolean);
+  },
+  boxCard(b, a){
+    const shades = ArtForm.shadesNow().length ? ArtForm.shadesNow() : (a ? a.colours : []);
+    const mix = (b.mix||[]).length ? b.mix : [{colour:shades[0]||'', qty:1}];
+    return `<div class="boxdef" data-boxdef data-id="${esc(b.id||uid('bx'))}">
+      <div class="row" style="align-items:flex-end; gap:9px">
+        <label class="fl" style="margin:0"><span>Box name</span>
+          <input data-bxname value="${esc(b.name||'')}" placeholder="6-Colour Box"
+                 oninput="ArtForm.boxSum(this)"></label>
+        <button class="btn xs ghost" style="flex:none"
+          onclick="this.closest('[data-boxdef]').remove()">Remove box</button>
+      </div>
+      <div data-bxmix style="margin-top:9px">${mix.map(m=>ArtForm.mixRow(m, shades)).join('')}</div>
+      <button class="btn xs" style="margin-top:7px"
+        onclick="ArtForm.addMix(this)">+ Add shade</button>
+      <div class="tiny muted" data-bxsum style="margin-top:8px"></div>
+    </div>`;
+  },
+  mixRow(m, shades){
+    return `<div class="boxrow" style="margin-bottom:6px" data-bxrow>
+      <select data-bxc onchange="ArtForm.boxSum(this)">
+        ${shades.map(s=>`<option ${s===m.colour?'selected':''}>${esc(s)}</option>`).join('')}
+      </select>
+      <input type="number" min="1" data-bxq value="${num(m.qty)||1}" style="max-width:84px"
+             oninput="ArtForm.boxSum(this)">
+      <button class="btn xs ghost" onclick="const p=this.closest('[data-boxdef]');
+        this.parentElement.remove(); ArtForm.boxSum(p)">×</button>
+    </div>`;
+  },
+  addBox(){
+    const shades = ArtForm.shadesNow();
+    if(!shades.length){ toast('Add the shades first — a box is a mix of them', true); return; }
+    $('#a_boxes').insertAdjacentHTML('beforeend',
+      ArtForm.boxCard({id:uid('bx'), name:'', mix:shades.slice(0,6).map(c=>({colour:c, qty:1}))}));
+    ArtForm.allBoxSums();
+  },
+  addMix(btn){
+    const card = btn.closest('[data-boxdef]');
+    const shades = ArtForm.shadesNow();
+    card.querySelector('[data-bxmix]').insertAdjacentHTML('beforeend',
+      ArtForm.mixRow({colour:shades[0]||'', qty:1}, shades));
+    ArtForm.boxSum(card);
+  },
+  boxSum(el){
+    const card = el.closest ? el.closest('[data-boxdef]') : el; if(!card) return;
+    const per = [...card.querySelectorAll('[data-bxrow]')]
+      .reduce((t,r)=>t + Math.max(1, num(r.querySelector('[data-bxq]').value)), 0);
+    const out = card.querySelector('[data-bxsum]');
+    if(out) out.textContent = per + ' pcs per box';
+  },
+  allBoxSums(){ $$('[data-boxdef]').forEach(c=>ArtForm.boxSum(c)); },
+  readBoxes(){
+    return $$('[data-boxdef]').map(card=>({
+      id: card.dataset.id || uid('bx'),
+      name: (card.querySelector('[data-bxname]').value||'').trim() || 'Box',
+      mix: [...card.querySelectorAll('[data-bxrow]')].map(r=>({
+        colour: r.querySelector('[data-bxc]').value,
+        qty: Math.max(1, num(r.querySelector('[data-bxq]').value))
+      })).filter(m=>m.colour)
+    })).filter(b=>b.mix.length);
+  },
+
+  /* ---- size-wise rates ---- */
+  sizesNow(){
+    return ($('#a_sizes') ? $('#a_sizes').value : '').split(',')
+      .map(s=>s.trim()).filter(Boolean);
+  },
+  renderRates(a){
+    const box = $('#a_sizerates'); if(!box) return;
+    const sizes = ArtForm.sizesNow();
+    const have = (a && a.sizeRates) || {};
+    box.innerHTML = sizes.length ? sizes.map(z=>`
+      <label class="fl" style="margin:0"><span>${esc(z)}</span>
+        <input type="number" min="0" step="1" data-sr="${esc(z)}"
+               value="${have[z] !== undefined && have[z] !== '' ? num(have[z]) : ''}"
+               placeholder="same" oninput="ArtForm.rateSum()"></label>`).join('')
+      : '<span class="tiny muted">Add the sizes above first.</span>';
+    ArtForm.rateSum();
+  },
+  readRates(){
+    const base = num($('#a_rate').value), out = {};
+    $$('[data-sr]').forEach(i=>{
+      const v = num(i.value);
+      // only a real, different figure is stored; blank means "same as the rate"
+      if(i.value !== '' && v > 0 && v !== base) out[i.dataset.sr] = v;
+    });
+    return out;
+  },
+  rateSum(){
+    const el = $('#a_ratesum'); if(!el) return;
+    const base = num($('#a_rate').value), rates = ArtForm.readRates();
+    const sizes = ArtForm.sizesNow();
+    if(!sizes.length){ el.textContent = ''; return; }
+    const groups = {};
+    sizes.forEach(z=>{ const r = rates[z] !== undefined ? rates[z] : base;
+      (groups[r] = groups[r] || []).push(z); });
+    const keys = Object.keys(groups);
+    el.innerHTML = keys.length === 1
+      ? `Every size at <b>${money(base)}</b>.`
+      : keys.sort((x,y)=>x-y).map(r=>`<b>${money(r)}</b> — ${groups[r].join(', ')}`).join('<br>');
+  },
+
   visChange(){
     $('#a_partywrap').style.display = $('#a_vis').value==='exclusive' ? '' : 'none';
   },
@@ -5145,9 +5399,12 @@ const ArtForm = {
       toast('That article code already exists', true); return; }
 
     const mode = $('#a_mode').value;
-    const boxTypeIds = $$('[data-bt]').filter(c=>c.checked).map(c=>c.value);
-    if((mode==='box'||mode==='both') && !boxTypeIds.length){
-      toast('Box mode needs at least one box type', true); return; }
+    const boxes = ArtForm.readBoxes();
+    if((mode==='box'||mode==='both') && !boxes.length){
+      toast('Box ordering needs at least one box defined below', true); return; }
+    // a box naming a shade this style no longer carries could never be packed
+    const orphan = boxes.find(b=>b.mix.some(m=>!colours.includes(m.colour)));
+    if(orphan){ toast(`${orphan.name} uses a shade this style does not have`, true); return; }
 
     const vis = $('#a_vis').value;
     const parties = $$('[data-pt]').filter(c=>c.checked).map(c=>c.value);
@@ -5160,7 +5417,11 @@ const ArtForm = {
       segment: $('#a_seg').value,
       rate: num($('#a_rate').value), moq: Math.max(1, num($('#a_moq').value)),
       sizes, colours, orderMode: mode,
-      boxTypeIds: (mode==='loose') ? [] : boxTypeIds,
+      boxes: (mode==='loose') ? [] : boxes,
+      boxTypeIds: (mode==='loose') ? [] : boxes.map(b=>b.id),
+      // a rate for a size that has since been removed would sit there unseen
+      sizeRates: (()=>{ const r = ArtForm.readRates(), out = {};
+        sizes.forEach(z=>{ if(r[z] !== undefined) out[z] = r[z]; }); return out; })(),
       visibility: vis, parties: vis==='exclusive' ? parties : [],
       stockMode: $('#a_stockmode').value,
       stock: prev ? Object.assign({}, prev.stock) : {},
