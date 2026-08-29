@@ -1063,6 +1063,46 @@ nav.tabs{position:static; top:auto}
 .rowpic.gone{background:var(--red-wash); box-shadow:inset 0 0 0 1px var(--red-line)}
 .rowpic.gone span{color:var(--red-ink)}
 
+/* ============================================================================
+   QUICK ORDER GRID
+   Dense on purpose. The style code and the quantity cells carry the weight;
+   everything else steps back so a buyer can run down the column.
+   ========================================================================== */
+.viewsw{margin-bottom:1px}
+.viewsw button{padding:7px 13px}
+.quickwrap{display:block}
+.qblock{padding:0; overflow:hidden; margin-bottom:14px; border-radius:var(--r)}
+.qblock.on{box-shadow:var(--up), 0 0 0 1.5px var(--red-line)}
+[data-theme="neu"] .qblock.on,[data-theme="dark"] .qblock.on{box-shadow:var(--up), 0 0 0 1.5px var(--red-line)}
+.qhead{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 16px; border-bottom:1px solid var(--line-2)}
+.qid{display:flex; align-items:baseline; gap:10px; min-width:0; flex-wrap:wrap}
+.qid b{font-size:15px; letter-spacing:.01em}
+.qid span{font-size:13px; color:var(--muted); min-width:0}
+.qrate{font-size:13.5px; font-weight:600}
+.qblock .grid-wrap{padding:4px 16px 0}
+table.qgrid{width:100%}
+table.qgrid th{padding-bottom:7px; position:relative}
+table.qgrid th .qsr{display:block; font-family:var(--f-mono); font-style:normal;
+  font-size:9px; font-weight:500; color:var(--red-ink); letter-spacing:-.02em; margin-top:2px}
+table.qgrid td.lbl{padding-right:12px}
+.qsw{width:11px; height:11px; border-radius:50%; display:inline-block; margin-right:7px;
+  vertical-align:-1px; box-shadow:inset 0 0 0 1px rgba(0,0,0,.22)}
+table.qgrid .cell input{width:58px}
+table.qgrid th.qtot,table.qgrid td.qtot{text-align:right; padding-left:14px;
+  font-variant-numeric:tabular-nums}
+table.qgrid td.qtot{font-size:13px; color:var(--faint); font-weight:500}
+table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
+.qfoot{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:11px 16px; border-top:1px solid var(--line-2)}
+.qfoot [data-qpcs]{font-size:15px}
+.qfoot .qval{font-size:15px; color:var(--red-ink)}
+@media (max-width:640px){
+  .qhead,.qfoot{padding:10px 12px}
+  .qblock .grid-wrap{padding:4px 12px 0}
+  .qid span{flex:1 1 100%; font-size:12px}
+}
+
 /* a box definition inside the article form */
 .boxdef{border-radius:var(--r-sm); padding:13px 14px; margin-bottom:10px;
   background:rgba(255,255,255,.45); border:1px solid var(--line-2)}
@@ -1273,7 +1313,7 @@ const LS_KEY  = 'ckl_portal_v1';
    could sit unseen for hours - long enough to report a fixed bug as still
    broken. version.txt is fetched past every cache and compared with the stamp
    built into this copy; when they differ, a bar offers a reload. */
-const APP_VERSION = '2026-08-29-08';
+const APP_VERSION = '2026-08-29-09';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -3019,6 +3059,10 @@ Views.catalogue = function(v){
           <option value="ready" ${F.av==='ready'?'selected':''}>Ready stock only</option>
           <option value="booking" ${F.av==='booking'?'selected':''}>Booking only</option></select></label>
       <button class="btn sm ghost" id="cclr" type="button" hidden>Clear filters</button>
+      <div class="modes viewsw" role="tablist" style="flex:none">
+        <button role="tab" data-cvm="browse" aria-selected="${F.mode!=='quick'}">Browse</button>
+        <button role="tab" data-cvm="quick"  aria-selected="${F.mode==='quick'}">Quick order</button>
+      </div>
     </div>
     <p class="tiny muted" id="cCount" role="status" aria-live="polite" style="margin:0 0 12px"></p>
     <div class="cards" id="cards"></div>`;
@@ -3100,6 +3144,7 @@ Views.catalogue = function(v){
       if(!animate) revealNow(box);
       return;
     }
+    if(F.mode === 'quick'){ Quick.paint(rows, box); if(!animate) revealNow(box); return; }
     // a phone browses tiles and orders in a sheet; a laptop keeps the inline grid
     const phone = isPhone();
     box.className = phone ? 'tiles' : 'cards';
@@ -3122,12 +3167,131 @@ Views.catalogue = function(v){
   $('#cseg').onchange = () => paint(false);
   $('#cav').onchange  = () => paint(false);
   $('#cclr').onclick  = () => Views.catalogue.reset();
+  $$('[data-cvm]').forEach(b=>b.onclick = ()=>{
+    F.mode = b.dataset.cvm;
+    $$('[data-cvm]').forEach(x=>x.setAttribute('aria-selected', x===b));
+    paint(false);
+  });
   paint(Nav.animate);
 };
 /** Drop every filter and repaint. Reachable from the toolbar and the empty state. */
 Views.catalogue.reset = function(){
   Views.catalogue.filters = {q:'', sg:'', av:''};
   if(Nav.cur === 'catalogue') Nav.refresh();
+};
+
+/* ============================================================================
+   QUICK ORDER — one grid, many styles.
+
+   Browsing cards is right when you are choosing. It is the wrong tool when you
+   already know what you want: eighteen styles meant eighteen cards, each with
+   its own scroll and its own Add button. Here every style is a block of rows -
+   one row per shade, one column per size - and a figure typed into a cell is in
+   the order immediately. Nothing to add, nothing to submit twice.
+
+   Sizes differ between styles, so each style brings its own columns rather than
+   forcing one shared set that would be wrong for half of them.
+   ========================================================================== */
+const Quick = {
+  paint(rows, box){
+    box.className = 'quickwrap';
+    if(!rows.length){ box.innerHTML = ''; return; }
+    box.innerHTML = rows.map(a=>Quick.block(a)).join('')
+      + `<p class="tiny muted" style="margin:14px 2px 0">Type into any cell and it joins your
+           order straight away. Leave a cell empty for nothing.</p>`;
+    rows.forEach(a=>Quick.sums(a.id));
+  },
+
+  block(a){
+    const ready = isReady(a);
+    const rr = rateRange(a);
+    return `<div class="qblock glass rv" data-q="${a.id}">
+      <div class="qhead">
+        <div class="qid">
+          <b class="mono">${esc(a.code)}</b>
+          <span>${esc(a.name)}</span>
+        </div>
+        <div class="spacer" style="flex:1"></div>
+        <span class="tiny muted">${ready
+          ? totalStock(a) + ' pcs ready'
+          : 'Made to order'}</span>
+        <span class="chip">MOQ ${a.moq}</span>
+        ${num(a.rate) ? `<span class="qrate mono">${rr.varies
+            ? money(rr.lo) + '–' + money(rr.hi) : money(netRate(a))}</span>`
+          : '<span class="chip red">No rate set</span>'}
+      </div>
+      <div class="grid-wrap"><table class="mx qgrid">
+        <thead><tr><th class="lbl">Shade</th>
+          ${a.sizes.map(z=>`<th>${esc(z)}${rr.varies
+            ? `<i class="qsr">${money(netRate(a,z))}</i>` : ''}</th>`).join('')}
+          <th class="qtot">Pcs</th></tr></thead>
+        <tbody>${a.colours.map(c=>`<tr>
+          <td class="lbl"><i class="qsw" style="background:${swatchOf(c)}"></i>${esc(c)}</td>
+          ${a.sizes.map(z=>{
+            const have = ready ? num(a.stock[c+'|'+z]) : null;
+            const now  = Cart.qtyOf(a.id, c, z);
+            const dead = ready && have === 0 && !now;
+            return `<td><div class="cell">
+              <input type="number" min="0" ${have!==null?`max="${have}"`:''}
+                inputmode="numeric" value="${now||''}" placeholder="0"
+                data-qq data-a="${a.id}" data-c="${esc(c)}" data-z="${esc(z)}"
+                ${dead?'disabled':''} class="${now?'has':''}"
+                aria-label="${esc(a.code)} ${esc(c)} ${esc(z)}">
+              <div class="left ${have!==null && have>0 && have<=12 ? 'lo':''}">${
+                have===null ? '' : (dead ? 'nil' : have)}</div>
+            </div></td>`;
+          }).join('')}
+          <td class="qtot mono" data-qrow="${esc(c)}">0</td></tr>`).join('')}
+        </tbody>
+      </table></div>
+      <div class="qfoot">
+        <span class="tiny muted" data-qmoq></span>
+        <div class="spacer" style="flex:1"></div>
+        <span class="tiny muted">Style total</span>
+        <b class="mono" data-qpcs>0</b>
+        <b class="mono qval" data-qval>${money(0)}</b>
+      </div>
+    </div>`;
+  },
+
+  /** Row, style and money totals for one block. */
+  sums(aid){
+    const a = article(aid); if(!a) return;
+    const root = $(`[data-q="${aid}"]`); if(!root) return;
+    let pcs = 0;
+    a.colours.forEach(c=>{
+      let row = 0;
+      a.sizes.forEach(z=>{ row += Cart.qtyOf(aid, c, z); });
+      const cell = root.querySelector(`[data-qrow="${CSS.escape(c)}"]`);
+      if(cell){ cell.textContent = row || '0'; cell.classList.toggle('on', row>0); }
+      pcs += row;
+    });
+    const val = Cart.artValue(aid);
+    const p = root.querySelector('[data-qpcs]'); if(p) p.textContent = pcs;
+    const v = root.querySelector('[data-qval]'); if(v) v.textContent = money(val);
+    const m = root.querySelector('[data-qmoq]');
+    if(m){
+      const short = num(a.moq) - pcs;
+      m.textContent = pcs === 0 ? ''
+        : short > 0 ? `${short} more to reach the MOQ of ${a.moq}` : `MOQ ${a.moq} met`;
+      m.className = 'tiny ' + (pcs && short > 0 ? 'moqwarn' : 'muted');
+    }
+    root.classList.toggle('on', pcs > 0);
+  },
+
+  /** A typed cell goes straight into the order, capped at what is on the shelf. */
+  set(inp){
+    const a = article(inp.dataset.a); if(!a) return;
+    const c = inp.dataset.c, z = inp.dataset.z;
+    let q = Math.max(0, num(inp.value));
+    if(isReady(a)){
+      const cap = num(a.stock[c+'|'+z]);
+      if(q > cap){ q = cap; inp.value = q || ''; toast(`${a.code} ${c} ${z}: only ${cap} in stock`, true); }
+    }
+    inp.classList.toggle('has', q > 0);
+    Cart.setLine(a.id, c, z, q);
+    Quick.sums(a.id);
+  }
 };
 
 function cardHTML(a){
@@ -3918,6 +4082,52 @@ function installPadHandlers(){
     if(!q) return;
     Cart.editLine(q.dataset.aid, q.dataset.c, q.dataset.z, num(q.value));
     Nav.refresh();
+  });
+
+  /* Quick order. Bound to #view once, so the grid can be repainted freely.
+     `input` rather than `change` keeps the running totals live under the
+     fingers; the cart itself is cheap to update. */
+  v.addEventListener('input', e => {
+    const q = e.target.closest('[data-qq]');
+    if(q) Quick.set(q);
+  });
+  /* A price grid is a spreadsheet in the buyer's head, so it moves like one:
+     arrows and Enter step between cells instead of forcing mouse and Tab. */
+  v.addEventListener('keydown', e => {
+    const cell = e.target.closest('[data-qq]'); if(!cell) return;
+    const keys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter'];
+    if(!keys.includes(e.key)) return;
+
+    /* A number input reports selectionStart as null - the caret API simply is
+       not available on it - so an "only move at the edge" rule would block
+       sideways movement for ever. In a numeric grid, left and right are
+       navigation anyway. */
+    const row = cell.closest('tr'); if(!row) return;
+    const cols = $$('[data-qq]', row);
+    const col  = cols.indexOf(cell); if(col < 0) return;
+
+    // step along the row, or down the same column into the next shade
+    const sideways = (dir) => {
+      for(let k = col + dir; k >= 0 && k < cols.length; k += dir)
+        if(!cols[k].disabled) return cols[k];
+      return null;
+    };
+    const vertical = (dir) => {
+      let tr = row;
+      while((tr = dir < 0 ? tr.previousElementSibling : tr.nextElementSibling)){
+        const c = $$('[data-qq]', tr)[col];
+        if(c && !c.disabled) return c;
+      }
+      return null;
+    };
+    let next = null;
+    if(e.key === 'ArrowLeft')  next = sideways(-1);
+    if(e.key === 'ArrowRight') next = sideways(1);
+    if(e.key === 'ArrowUp')    next = vertical(-1);
+    if(e.key === 'ArrowDown' || e.key === 'Enter') next = vertical(1);
+    if(!next) return;
+    e.preventDefault();
+    next.focus(); try{ next.select(); }catch(err){}
   });
 
   /* Sheet controls live inside the scrim, which is replaced per open, so they
@@ -5137,7 +5347,9 @@ Views.articles = function(v){
           <td data-l="Article">${esc(a.name)} ${a.active===false?'<span class="chip">Off</span>':''}
             <div class="tiny muted">${a.colours.length} shades · ${a.sizes.length} sizes</div></td>
           <td class="muted tiny" data-l="Fabric">${esc(a.fabric)}</td>
-          <td class="n" data-l="Rate">${money(a.rate)}</td>
+          <td class="n" data-l="Rate">${num(a.rate)
+            ? money(a.rate)
+            : '<span class="chip red" title="Buyers would be quoted zero">No rate</span>'}</td>
           <td class="n" data-l="MOQ">${a.moq}</td>
           <td data-l="Mode"><span class="chip">${a.orderMode==='both'?'Loose + Box':(a.orderMode==='box'?'Box':'Loose')}</span>
             ${boxesBroken(a).length ? `<span class="chip red" title="Their shades are not on this style">
