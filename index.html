@@ -1366,25 +1366,27 @@ const Media = (()=>{
       if(!blob) return null;
       const u = URL.createObjectURL(blob); urls.set(key,u); return u;
     },
+    /* Photos are kept in the settings table, under keys like "photo:ph_abc123".
+       That table already exists and already has the right permissions — the
+       office can write, anyone signed in can read — so sharing pictures across
+       computers needs no database setup at all. An earlier version used a
+       dedicated photos table, which meant nothing worked until somebody ran a
+       migration, and in the meantime every wholesaler saw grey placeholders. */
+    ROW: key => 'photo:' + key,
+
     /** Fetch one photo out of the shared database. */
     async pull(key){
-      if(Media._noTable) return null;           // setup SQL not run yet — stop asking
       if(Media._missing.has(key)) return null;  // don't re-ask for a known gap
       try{
-        const rows = await Cloud.rest('photos?select=data&id=eq.' + encodeURIComponent(key));
-        const d = rows && rows[0] && rows[0].data;
-        if(!d){ Media._missing.add(key); return null; }
+        const rows = await Cloud.rest('settings?select=value&key=eq.'
+          + encodeURIComponent(Media.ROW(key)));
+        const d = rows && rows[0] && rows[0].value;
+        if(!d || typeof d !== 'string'){ Media._missing.add(key); return null; }
         return dataURLToBlob(d);
-      }catch(e){
-        // a missing table is a one-off setup state, not a per-photo problem;
-        // re-asking for every photo on every render just floods the network log
-        if(/public\.photos|schema cache|does not exist/i.test(e.message)) Media._noTable = true;
-        else Media._missing.add(key);
-        return null;
-      }
+      }catch(e){ Media._missing.add(key); return null; }
     },
     _missing:new Set(),
-    _noTable:false,
+
     /** Put a photo where every device can reach it. */
     async push(key, blob){
       if(!CLOUD) return;
@@ -1392,10 +1394,18 @@ const Media = (()=>{
         r.onload = () => res(r.result); r.onerror = () => res(null);
         r.readAsDataURL(blob); });
       if(!d) throw new Error('Could not read that image');
-      await Cloud.rest('photos', {method:'POST',
-        headers:{'Prefer':'resolution=merge-duplicates'},
-        body:[{id:key, data:d, bytes:d.length}]});
+      await Cloud.saveSetting(Media.ROW(key), d);
       Media._missing.delete(key);
+    },
+
+    /** Which of these photo keys are already shared? One round trip. */
+    async shared(keys){
+      if(!CLOUD || !keys.length) return [];
+      const list = keys.map(k=>'"' + Media.ROW(k) + '"').join(',');
+      try{
+        const rows = await Cloud.rest('settings?select=key&key=in.(' + encodeURIComponent(list) + ')');
+        return (rows||[]).map(r=>String(r.key).replace(/^photo:/, ''));
+      }catch(e){ return []; }
     },
     async all(){ // for backup: key -> dataURL
       const s = await tx('readonly');
@@ -1930,7 +1940,10 @@ const Cloud = {
       Cloud.rest('box_types?select=*&active=eq.true'),
       Cloud.rest('wholesalers?select=*&order=code'),
       Cloud.rest('orders?select=*&order=created_at.desc'),
-      Cloud.rest('settings?select=*')
+      // photo bytes live in this table too, under photo: keys. They are fetched
+      // one at a time when a picture is actually shown, never in this bulk read
+      // — otherwise every sign-in would drag down megabytes of images.
+      Cloud.rest('settings?select=*&key=not.like.photo:*')
     ]);
 
     DB = DB || {};
@@ -2234,6 +2247,7 @@ const Auth = {
         }catch(e){}
       }, 20000);
       Cart.welcome();              // an unfinished order survives a refresh
+      setTimeout(Preview.autoShare, 2500);   // after the screen has settled
       return;
     }
     // standalone: DB is already loaded from this browser; render from it
@@ -4374,8 +4388,26 @@ const Stock = {
       : 'Stock saved', !!Stock._pending.size);
   },
 
-  /** Flip a booking style to ready stock, seeded at zero, straight from here. */
+  /** Flip a booking style to ready stock, seeded at zero, straight from here.
+      It changes how the style behaves for every buyer — a booking style can be
+      ordered freely, a ready-stock one cannot be ordered past the shelf — so it
+      asks first rather than acting on a stray tap. */
   enable(aid){
+    const a = article(aid); if(!a || a.stockMode==='ready') return;
+    Modal.show({
+      title:'Start tracking stock?', sub:`${a.code} — ${a.name}`,
+      body:`<p style="margin:0 0 10px">Right now this style is <b>booking</b>: buyers can order any
+              quantity and you cut to order.</p>
+            <p style="margin:0">Tracking stock means the portal holds a figure for each of its
+              ${a.colours.length} shades x ${a.sizes.length} sizes, and buyers cannot order more
+              than the shelf has. Every cell starts at zero, so it will read as sold out until you
+              enter what you actually hold.</p>`,
+      foot:`<button class="btn" onclick="Modal.close()">Leave it as booking</button>
+            <button class="btn accent" onclick="Modal.close();Stock.doEnable('${aid}')">
+              Start tracking</button>`
+    });
+  },
+  doEnable(aid){
     const a = article(aid); if(!a || a.stockMode==='ready') return;
     a.stockMode = 'ready';
     a.colours.forEach(c=>a.sizes.forEach(z=>{ const k=c+'|'+z; a.stock[k]=num(a.stock[k]); }));
@@ -4814,7 +4846,7 @@ const PartyForm = {
 
     if(err && /list_logins|does not exist|schema/i.test(err)){
       box.innerHTML = `<div class="warnbox" style="margin:0">Login management needs one setup step.
-        Run <span class="mono">db/SETUP-RUN-THIS.sql</span> in Supabase once, then reopen this.</div>`;
+        Run <span class="mono">db/LOGINS.sql</span> in Supabase once, then reopen this.</div>`;
       return;
     }
     if(err){ box.innerHTML = `<div class="warnbox" style="margin:0">${esc(err)}</div>`; return; }
@@ -5147,7 +5179,8 @@ const ArtForm = {
     // photo only on one laptop is a photo no wholesaler will ever see.
     for(const k of ArtForm.removed){
       try{ await Media.del(k); }catch(e){}
-      if(CLOUD) try{ await Cloud.rest('photos?id=eq.'+encodeURIComponent(k), {method:'DELETE'}); }catch(e){}
+      if(CLOUD) try{ await Cloud.rest('settings?key=eq.'+encodeURIComponent(Media.ROW(k)),
+        {method:'DELETE'}); }catch(e){}
     }
     let photoFail = '';
     for(const g of ArtForm.gallery){
@@ -5418,11 +5451,11 @@ Views.logins = function(v){
                because it changes the database itself. It takes about a minute.</p>
              <ol class="tiny muted" style="margin:0; padding-left:18px; line-height:1.95">
                <li>Open your Supabase project → <b>SQL Editor</b></li>
-               <li>Paste the contents of <span class="mono">db/supabase_photos_and_logins.sql</span></li>
+               <li>Paste the contents of <span class="mono">db/LOGINS.sql</span></li>
                <li>Press <b>Run</b>, then reload this page</li>
              </ol>
-             <p class="tiny muted" style="margin:12px 0 0">The same file also switches on shared
-               product photos, so your wholesalers can see them.</p>
+             <p class="tiny muted" style="margin:12px 0 0">Product photos do not need this —
+               they already share themselves across every computer.</p>
            </div>`
         : `<div class="glass rv" style="padding:18px 20px">
              <div class="warnbox" style="margin:0">${esc(Logins.err)}</div></div>`;
@@ -5505,41 +5538,53 @@ const Preview = {
        <button class="btn sm" onclick="Preview.exit()">Back to office</button>`;
   },
 
-  /** How many photos exist only on this device and have never been uploaded. */
+  /** Which photos are shared, and which are still stuck on this computer. */
   async audit(){
     const ids = [];
     DB.articles.forEach(a=>(a.photoIds||[]).forEach(k=>{ if(ids.indexOf(k)<0) ids.push(k); }));
-    if(!ids.length || !CLOUD) return {total:ids.length, shared:0, local:ids.length ? ids : []};
-    let shared = [];
-    try{
-      const rows = await Cloud.rest('photos?select=id&limit=1000');
-      shared = (rows||[]).map(r=>r.id);
-    }catch(e){ return {total:ids.length, shared:null, local:[], err:e.message}; }
-    return {total:ids.length, shared:shared.length, local:ids.filter(k=>shared.indexOf(k)<0)};
+    if(!ids.length || !CLOUD) return {total:ids.length, shared:0, local:[], here:[]};
+    let shared;
+    try{ shared = await Media.shared(ids); }
+    catch(e){ return {total:ids.length, shared:null, local:[], here:[], err:e.message}; }
+    const missing = ids.filter(k=>shared.indexOf(k) < 0);
+    // of the ones not shared, which does THIS computer actually hold?
+    const here = [];
+    for(const k of missing){ if(await Media.url(k)) here.push(k); }
+    return {total:ids.length, shared:shared.length, local:missing, here};
   },
 
-  /** Push this device's photos up so every other device can see them. */
-  async upload(){
+  /** Push this computer's photos up so every other computer can see them. */
+  async upload(quiet){
     const a = await Preview.audit();
-    if(a.err){ toast(a.err, true); return; }
-    if(!a.local.length){ toast('Every photo is already shared'); return; }
-    Media._noTable = false;                     // the table may have just been created
-    let done = 0, missing = 0;
-    toast('Uploading ' + a.local.length + ' photo' + (a.local.length===1?'':'s') + '…');
-    for(const k of a.local){
-      const u = await Media.url(k);
-      if(!u){ missing++; continue; }                 // not on this device either
-      try{
-        const blob = await (await fetch(u)).blob();
-        await Media.push(k, blob); done++;
-      }catch(e){ missing++; }
+    if(a.err){ if(!quiet) toast(a.err, true); return 0; }
+    if(!a.here.length){
+      if(!quiet) toast(a.local.length
+        ? `Those ${a.local.length} photo${a.local.length===1?' is':'s are'} on another computer — open the portal there`
+        : 'Every photo is already shared', !!a.local.length);
+      return 0;
     }
-    Nav.refresh();
-    toast(done
-      ? `${done} photo${done===1?'':'s'} uploaded`
-        + (missing ? ` · ${missing} not on this device` : '')
-      : `Nothing uploaded — those ${missing} photo${missing===1?'':'s'} are not on this computer`,
-      !!missing);
+    let done = 0, failed = 0;
+    if(!quiet) toast('Sharing ' + a.here.length + ' photo' + (a.here.length===1?'':'s') + '…');
+    for(const k of a.here){
+      try{
+        const blob = await (await fetch(await Media.url(k))).blob();
+        await Media.push(k, blob); done++;
+      }catch(e){ failed++; }
+    }
+    if(Nav.cur === 'preview') Nav.refresh();
+    if(done || !quiet) toast(
+      done ? `${done} photo${done===1?'':'s'} shared — every wholesaler can see ${done===1?'it':'them'} now`
+           : 'Could not share those photos', !!failed);
+    return done;
+  },
+
+  /* Photos taken on one computer used to sit there for ever, because sharing
+     them meant knowing to visit a screen and press a button. The office should
+     not have to think about it: whenever the desk signs in, anything this
+     computer holds and the database does not is sent up quietly. */
+  async autoShare(){
+    if(!CLOUD || !SESSION || SESSION.role !== 'admin') return;
+    try{ await Preview.upload(true); }catch(e){}
   }
 };
 
@@ -5578,9 +5623,7 @@ Views.preview = function(v){
     const box = $('#pvPhotos'); if(!box) return;
     if(a.err){
       box.innerHTML = `<div class="eyebrow">Product photos</div>
-        <p class="tiny" style="margin:6px 0 0; color:var(--red)">Could not check: ${esc(a.err)}.
-          If this says the photos table is missing, run
-          <span class="mono">db/supabase_photos_and_logins.sql</span> in Supabase once.</p>`;
+        <p class="tiny" style="margin:6px 0 0; color:var(--red)">Could not check: ${esc(a.err)}</p>`;
       return;
     }
     if(!a.total){
@@ -5596,12 +5639,18 @@ Views.preview = function(v){
           <div style="font-size:13.5px; font-weight:600">
             ${a.shared} of ${a.total} photo${a.total===1?'':'s'} shared</div>
           <p class="tiny muted" style="margin:3px 0 0">${ok
-            ? 'Every wholesaler can see your product photos.'
-            : `${a.local.length} photo${a.local.length===1?' is':'s are'} still only on one computer —
-               wholesalers see a placeholder instead.`}</p>
+            ? 'Every wholesaler can see your product photos, from any computer.'
+            : a.here.length
+              ? `${a.here.length} photo${a.here.length===1?' is':'s are'} on this computer and not yet
+                 shared. Press the button and every wholesaler will see ${a.here.length===1?'it':'them'}.`
+              : `${a.local.length} photo${a.local.length===1?' was':'s were'} uploaded on a different
+                 computer, so only that computer has ${a.local.length===1?'it':'them'}. Open the portal
+                 there and sign in as the office — they will share themselves automatically.`}</p>
         </div>
         ${ok ? '<span class="chip ok">All shared</span>'
-             : `<button class="btn accent sm" onclick="Preview.upload()">Upload them now</button>`}
+             : a.here.length
+               ? `<button class="btn accent sm" onclick="Preview.upload()">Share them now</button>`
+               : '<span class="chip warn">On another computer</span>'}
       </div>`;
   });
 };
