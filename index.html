@@ -1050,6 +1050,19 @@ nav.tabs{position:static; top:auto}
 .boxpick .pill-list{gap:5px}
 .boxpick .boxrow input{width:74px; text-align:center}
 
+/* new-version bar: sits at the bottom so it never covers the header or tabs */
+#updbar{position:fixed; left:50%; transform:translateX(-50%); z-index:310;
+  bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;
+  padding:11px 14px; border-radius:var(--r-sm); max-width:min(520px, calc(100% - 24px));
+  background:var(--ink); color:var(--ground); box-shadow:var(--sh-3); font-size:13.5px}
+#updbar .btn{background:rgba(255,255,255,.16); color:inherit; border:0; box-shadow:none}
+#updbar .btn:hover{background:rgba(255,255,255,.3); color:inherit}
+
+/* a photo that a style expects but nobody has - actionable, not just blank */
+.rowpic.gone{background:var(--red-wash); box-shadow:inset 0 0 0 1px var(--red-line)}
+.rowpic.gone span{color:var(--red-ink)}
+
 /* a box definition inside the article form */
 .boxdef{border-radius:var(--r-sm); padding:13px 14px; margin-bottom:10px;
   background:rgba(255,255,255,.45); border:1px solid var(--line-2)}
@@ -1255,6 +1268,12 @@ const LOGIN_DOMAIN = '@cklonline.in';
 const ADMIN_PIN = '9999';   // only used by the offline fallback
 
 const LS_KEY  = 'ckl_portal_v1';
+
+/* The page itself is cached by the browser and by the hosting, so an update
+   could sit unseen for hours - long enough to report a fixed bug as still
+   broken. version.txt is fetched past every cache and compared with the stamp
+   built into this copy; when they differ, a bar offers a reload. */
+const APP_VERSION = '2026-08-29-07';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -5115,15 +5134,25 @@ Views.articles = function(v){
         </tr>`).join('')}</tbody></table></div>`}
     </div>
     <p class="tiny muted rv" style="margin:10px 0 0">Photos are shared with every wholesaler.
-      Check <b>Preview</b> to confirm what they can actually see.</p>`;
+      A red <b>missing</b> square means that style's photo was uploaded on another computer and
+      never shared — open the style and upload it again here.</p>`;
   Find.wire('style');
   // thumbnails load after the table, from this device or the shared database
   DB.articles.forEach(async a=>{
-    const k = (a.photoIds||[])[0]; if(!k) return;
-    const u = await Media.url(k); const box = $('#rp_'+a.id);
-    if(!u || !box) return;
-    box.innerHTML = `<img src="${u}" alt="${esc(a.name)}" decoding="async">`;
-    box.classList.add('has');
+    const k = (a.photoIds||[])[0];
+    const box = $('#rp_'+a.id); if(!box || !k) return;
+    const u = await Media.url(k);
+    if(!$('#rp_'+a.id)) return;                 // navigated away while loading
+    if(u){
+      box.innerHTML = `<img src="${u}" alt="${esc(a.name)}" decoding="async">`;
+      box.classList.add('has');
+    } else {
+      // the style expects a photo, but it is neither shared nor on this
+      // computer — say so plainly instead of showing an empty grey square
+      box.classList.add('gone');
+      box.title = 'This photo was uploaded on another computer and never shared. Re-upload it here.';
+      box.innerHTML = '<span>missing</span>';
+    }
   });
 };
 
@@ -7049,6 +7078,33 @@ const Guard = {
   // mixed PIN has to be able to type it, or stripping would lock it out.
   // inputmode brings up the number pad, which is the part that matters daily.
 })();
+
+/* ---- new-version watch ---------------------------------------------------
+   Checks on load and every ten minutes. It never reloads by itself: a reload
+   in the middle of typing an order would be worse than being one version
+   behind, so it asks. */
+const Update = {
+  async check(quiet){
+    try{
+      const r = await fetch('version.txt?t=' + Date.now(), {cache:'no-store'});
+      if(!r.ok) return;
+      const live = (await r.text()).trim();
+      if(!live || live === APP_VERSION) return;
+      Update.offer(live);
+    }catch(e){ /* offline, or opened from a file - nothing to do */ }
+  },
+  offer(live){
+    if($('#updbar')) return;
+    const b = document.createElement('div');
+    b.id = 'updbar';
+    b.innerHTML = `<span>A newer version of the portal is ready.</span>
+      <button class="btn sm" onclick="location.reload(true)">Reload now</button>
+      <button class="btn sm ghost" onclick="this.closest('#updbar').remove()">Later</button>`;
+    document.body.appendChild(b);
+  }
+};
+addEventListener('load', ()=>{ setTimeout(()=>Update.check(), 1500);
+  setInterval(()=>Update.check(), 600000); });
 
 Guard.install();
 Theme.set(Theme.get());          // sync the toggle labels with the pre-paint theme
