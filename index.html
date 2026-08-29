@@ -1273,7 +1273,7 @@ const LS_KEY  = 'ckl_portal_v1';
    could sit unseen for hours - long enough to report a fixed bug as still
    broken. version.txt is fetched past every cache and compared with the stamp
    built into this copy; when they differ, a bar offers a reload. */
-const APP_VERSION = '2026-08-29-07';
+const APP_VERSION = '2026-08-29-08';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -2049,8 +2049,23 @@ const Cloud = {
   },
 
   /* ---- writes ---- */
-  saveArticle(a){ return Cloud.rest('articles', {method:'POST',
-    headers:{'Prefer':'resolution=merge-duplicates'}, body:[Cloud.fromArticle(a)]}); },
+  /** Save a style. size_rates only exists once SIZE-PRICES.sql has been run, so
+      if the database rejects that column we send everything else rather than
+      failing the whole save — losing a photo or a stock figure because of a
+      pricing column nobody has switched on yet would be indefensible. */
+  async saveArticle(a){
+    const row = Cloud.fromArticle(a);
+    try{
+      return await Cloud.rest('articles', {method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'}, body:[row]});
+    }catch(e){
+      if(!/size_rates/i.test(e.message)) throw e;
+      const {size_rates, ...rest} = row;
+      Cloud._noSizeRates = true;
+      return Cloud.rest('articles', {method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'}, body:[rest]});
+    }
+  },
   /** Save a party. The discounts column only exists once the setup SQL has been
       run, so if the database rejects it we send everything else rather than
       losing the whole save — the combined `discount` is what pricing needs and
@@ -5101,6 +5116,9 @@ Views.articles = function(v){
   v.innerHTML = `
     <div class="head"><div><h2>Articles</h2><p>Catalogue masters — rates, shades, sizes, boxes and photos.</p></div>
       <div class="spacer" style="flex:1"></div>
+      <button class="btn sm" onclick="document.getElementById('bulkpix').click()">Upload photos</button>
+      <input type="file" id="bulkpix" accept="image/*" multiple style="display:none"
+             onchange="BulkPix.pick(this)">
       <button class="btn accent sm" onclick="ArtForm.open()">Add article</button></div>
     ${Find.bar('Style number, name, fabric or shade…')}
     ${Find.none()}
@@ -5133,9 +5151,27 @@ Views.articles = function(v){
           <td class="acts" style="text-align:right"><button class="btn xs" onclick="ArtForm.open('${a.id}')">Edit</button></td>
         </tr>`).join('')}</tbody></table></div>`}
     </div>
+    <div id="pixgap"></div>
     <p class="tiny muted rv" style="margin:10px 0 0">Photos are shared with every wholesaler.
       A red <b>missing</b> square means that style's photo was uploaded on another computer and
-      never shared — open the style and upload it again here.</p>`;
+      never shared.</p>`;
+  // name the styles nobody can see a photo for, and offer the one-step fix
+  (async()=>{
+    const gone = [];
+    for(const a of DB.articles.filter(x=>(x.photoIds||[]).length)){
+      if(!await Media.url(a.photoIds[0])) gone.push(a.code);
+    }
+    const box = $('#pixgap'); if(!box || !gone.length) return;
+    box.innerHTML = `<div class="warnbox rv" style="margin:12px 0 0">
+      <b>${gone.length} style${gone.length===1?'':'s'} have a photo nobody can see.</b>
+      ${esc(gone.join(', '))}.
+      <div style="margin-top:9px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+        <button class="btn sm accent" onclick="document.getElementById('bulkpix').click()">
+          Upload the photos</button>
+        <span class="tiny">Pick all the image files at once. Name each after its style code and
+          they sort themselves.</span>
+      </div></div>`;
+  })();
   Find.wire('style');
   // thumbnails load after the table, from this device or the shared database
   DB.articles.forEach(async a=>{
@@ -5154,6 +5190,88 @@ Views.articles = function(v){
       box.innerHTML = '<span>missing</span>';
     }
   });
+};
+
+/* ============================================================================
+   BULK PHOTOS — many files at once, sorted by the style code in the file name.
+
+   A photo uploaded on one computer used to stay there. When the computer
+   holding the originals is not to hand, re-attaching them one style at a time
+   is slow; here the whole set goes up in one action, straight into the shared
+   database so every wholesaler sees them.
+   ========================================================================== */
+const BulkPix = {
+  /** Style codes vary in punctuation, so compare them stripped down. */
+  key: s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+
+  /** The longest code appearing in the file name wins, so a file named for
+      CKLM-8055 is not claimed by CKLM-805. */
+  matchFor(filename){
+    const stem = BulkPix.key(filename.replace(/\.[^.]+$/, ''));
+    let best = null;
+    DB.articles.forEach(a=>{
+      const k = BulkPix.key(a.code);
+      if(k && stem.includes(k) && (!best || k.length > BulkPix.key(best.code).length)) best = a;
+    });
+    return best;
+  },
+
+  pick(inp){
+    const files = [...(inp.files||[])]; inp.value = '';
+    if(!files.length) return;
+    const rows = files.map(f=>({file:f, art:BulkPix.matchFor(f.name)}));
+    const hit = rows.filter(r=>r.art), miss = rows.filter(r=>!r.art);
+    BulkPix._rows = hit;
+    Modal.show({
+      wide:true,
+      title:'Upload photos', sub:`${files.length} file${files.length===1?'':'s'} chosen`,
+      body:`
+        ${hit.length ? `<div class="sec"><h4>${hit.length} matched by file name</h4>
+          <div class="tbl-scroll" style="max-height:250px; overflow:auto"><table class="data">
+            <thead><tr><th>File</th><th>Style</th><th></th></tr></thead>
+            <tbody>${hit.map(r=>`<tr>
+              <td class="tiny">${esc(r.file.name)}</td>
+              <td class="mono"><b>${esc(r.art.code)}</b> <span class="muted">${esc(r.art.name)}</span></td>
+              <td>${(r.art.photoIds||[]).length
+                    ? '<span class="chip warn">becomes the cover</span>'
+                    : '<span class="chip ok">first photo</span>'}</td></tr>`).join('')}
+            </tbody></table></div></div>` : ''}
+        ${miss.length ? `<div class="sec"><h4>${miss.length} could not be matched</h4>
+          <div class="mix" style="max-height:140px; overflow:auto">${miss.map(r=>esc(r.file.name)).join('<br>')}</div>
+          <p class="tiny muted" style="margin:8px 0 0">Put the style code in the file name -
+            <span class="mono">CKLM-804.jpg</span> - and it will match. Anything else in the name
+            is ignored.</p></div>` : ''}
+        ${!hit.length ? '<p style="margin:0">Nothing to upload yet.</p>' : ''}`,
+      foot:`<button class="btn" onclick="Modal.close()">Cancel</button>
+            ${hit.length ? `<button class="btn accent" id="bpgo" onclick="BulkPix.run()">
+              Upload ${hit.length} photo${hit.length===1?'':'s'}</button>` : ''}`
+    });
+  },
+
+  async run(){
+    const rows = BulkPix._rows || []; if(!rows.length) return;
+    const btn = $('#bpgo'); if(btn) btn.disabled = true;
+    let done = 0; const failed = [];
+    for(let i=0; i<rows.length; i++){
+      const {file, art} = rows[i];
+      if(btn) btn.textContent = `Uploading ${i+1} of ${rows.length}...`;
+      try{
+        const blob = await resizePhoto(file, 900);
+        const key = uid('ph');
+        await Media.put(key, blob);
+        await Media.push(key, blob);          // straight into the shared database
+        art.photoIds = [key].concat(art.photoIds || []);   // newest becomes the cover
+        await Cloud.saveArticle(art);
+        done++;
+      }catch(e){ failed.push(art.code + ' - ' + e.message); }
+    }
+    Store.save();
+    Modal.close(); Nav.refresh();
+    toast(failed.length
+      ? `${done} uploaded, ${failed.length} failed (${failed[0]})`
+      : `${done} photo${done===1?'':'s'} uploaded - every wholesaler can see ${done===1?'it':'them'} now`,
+      !!failed.length);
+  }
 };
 
 const ArtForm = {
@@ -5212,6 +5330,9 @@ const ArtForm = {
       <div class="sec"><h4>Size-wise rate</h4>
         <p class="tiny muted" style="margin:-4px 0 9px">Leave a size blank and it uses the rate
           above. Fill one in only where it differs — the bigger sizes usually.</p>
+        ${Cloud._noSizeRates ? `<div class="warnbox" style="margin:0 0 10px">These are not saved
+          yet. The database prices every order itself, so it has to know the size rates too —
+          run <span class="mono">db/SIZE-PRICES.sql</span> in Supabase once.</div>` : ''}
         <div id="a_sizerates" class="sizerates"></div>
         <div class="mix" id="a_ratesum" style="margin-top:10px"></div>
       </div>
@@ -5487,6 +5608,8 @@ const ArtForm = {
     ArtForm.gallery = []; ArtForm.removed = [];
     Modal.close(); Nav.refresh();
     if(photoFail) toast('Article saved, but the photo did not upload: ' + photoFail, true);
+    else if(Cloud._noSizeRates && Object.keys(rec.sizeRates||{}).length)
+      toast('Saved — but size-wise rates need db/SIZE-PRICES.sql run once before they take effect', true);
     else toast('Article saved');
   },
   async del(id){
