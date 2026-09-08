@@ -228,6 +228,10 @@ label.fl>span{display:block; font-size:11px; font-weight:600; color:var(--muted)
 .pin-row .pineye{flex:none; align-self:stretch; padding:0 13px; min-width:62px;
   justify-content:center; letter-spacing:0}
 .err{color:var(--red); font-size:12px; font-weight:600; min-height:17px; margin-top:10px}
+.err b{font-family:var(--f-mono); letter-spacing:.02em}
+.linkish{background:none; border:0; padding:0; font:inherit; color:var(--red-ink);
+  text-decoration:underline; cursor:pointer}
+.linkish:hover{opacity:.8}
 .demo{margin-top:24px; padding-top:18px; border-top:1px solid var(--line-2)}
 .demo-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-top:9px}
 .demo-grid button{font-family:var(--f-mono); font-size:11px; padding:7px; border-radius:9px;
@@ -1228,7 +1232,9 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
 
     <!-- One form for everyone. The login ID decides the role, so there is no
          Wholesaler / Office switch to get wrong. -->
-    <form id="stepCreds" onsubmit="event.preventDefault();Auth.submit()">
+    <!-- novalidate: the app checks both fields itself and explains what is wrong in
+     the page. Browser validation here can only refuse to submit, silently. -->
+<form id="stepCreds" novalidate onsubmit="event.preventDefault();Auth.submit()">
       <label class="fl"><span>Login ID</span>
         <input id="lcode" autocomplete="username" autocapitalize="characters" spellcheck="false"
                autocorrect="off" enterkeyhint="next"
@@ -1237,8 +1243,13 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
            silently truncated longer ones, so the field could not hold what the
            person was typing and sign-in failed with no explanation. -->
       <label class="fl"><span>PIN</span>
+        <!-- No pattern here on purpose. A pattern of [0-9]* made the browser
+             refuse to submit the form for any PIN containing a letter, with no
+             message at all - the button simply did nothing. New PINs are
+             numbers only, but that rule belongs where PINs are CREATED, not
+             where an existing one is typed. -->
         <div class="pin-row"><input id="lpin" type="password" inputmode="numeric"
-               pattern="[0-9]*" maxlength="12" autocomplete="current-password"
+               maxlength="24" autocomplete="current-password"
                enterkeyhint="go" placeholder="••••••">
           <button type="button" class="btn sm ghost pineye" id="lpineye"
                   onclick="Auth.peek()" aria-label="Show PIN">Show</button></div></label>
@@ -1320,7 +1331,7 @@ const LS_KEY  = 'ckl_portal_v1';
    could sit unseen for hours - long enough to report a fixed bug as still
    broken. version.txt is fetched past every cache and compared with the stamp
    built into this copy; when they differ, a bar offers a reload. */
-const APP_VERSION = '2026-09-08-01';
+const APP_VERSION = '2026-09-08-02';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -1903,6 +1914,8 @@ const Cloud = {
         : (raw || 'Could not sign in. Check your connection and try again.'));
     }
     Cloud.saveSession(j);
+    // remember the ID that actually worked, never the PIN
+    try{ localStorage.setItem('ckl_last_id', String(code).trim().toUpperCase()); }catch(e){}
     return j;
   },
 
@@ -2348,16 +2361,54 @@ const Auth = {
       }
       await Auth.enter();
     }catch(e){
-      // Say which ID was actually tried. Autofill and phone keyboards change
-      // what is in the box, and "not recognised" with no detail leaves someone
-      // guessing which of the two fields is wrong.
-      err.textContent = /not recognised/i.test(e.message)
-        ? `Signed in as “${code}”? That ID and PIN did not match. Tap Show to check the PIN.`
-        : e.message;
+      /* The old wording opened with "Signed in as ADMIN?", which reads as if
+         the sign-in had worked. Say plainly that it failed, name the ID that
+         was actually tried (autofill and phone keyboards change what is in the
+         box), and offer a way forward instead of a dead end. */
+      Auth.fails = (Auth.fails || 0) + 1;
+      if(/not recognised|credential/i.test(e.message)){
+        err.innerHTML = `Wrong ID or PIN. You tried the ID <b>${esc(code)}</b>.`
+          + ` Press <b>Show</b> to read the PIN back.`
+          + (Auth.fails >= 3
+              ? ` <button type="button" class="linkish" onclick="Auth.help()">Forgotten it?</button>`
+              : '');
+      } else if(/rate|too many/i.test(e.message)){
+        err.textContent = 'Too many tries in a row. Wait a minute, then try again.';
+      } else {
+        err.textContent = e.message;
+      }
       $('#lpin').focus(); $('#lpin').select();
     }finally{
       Auth.busy(btn, false, 'Sign in');
     }
+  },
+
+  /* Nobody can look a PIN up - the database keeps only a one-way hash - so the
+     honest answer is who to ask, not a reset link that cannot exist. */
+  help(){
+    Modal.show({
+      title:'Forgotten your PIN?',
+      sub:'A PIN is stored scrambled and cannot be read back by anyone',
+      body:`<div class="sec"><h4>If you are a wholesaler</h4>
+              <p style="margin:0">Ring the CKL office. They set a new PIN for you in seconds from
+                the Logins screen, and tell you what it is.</p></div>
+            <div class="sec"><h4>If you are the office desk</h4>
+              <p style="margin:0 0 8px">Your own account is the one nobody else can reset. Open your
+                Supabase project, go to <b>SQL Editor</b>, and run this - putting the PIN you want
+                between the quotes:</p>
+              <div class="mix" style="user-select:all">update auth.users set encrypted_password =
+extensions.crypt('YOUR-NEW-PIN', extensions.gen_salt('bf'))
+ where email = 'admin@cklonline.in';</div>
+              <p class="tiny muted" style="margin:8px 0 0">Then sign in with login ID
+                <b class="mono">ADMIN</b> and that PIN.</p></div>`,
+      foot:`<button class="btn accent" onclick="Modal.close()">Close</button>`
+    });
+  },
+
+  /** Put the cursor where there is still something to type. */
+  land(){
+    const c = $('#lcode'), p = $('#lpin');
+    if(c && !c.value) c.focus(); else if(p) p.focus();
   },
 
   busy(btn, on, label){
@@ -7442,6 +7493,20 @@ const Guard = {
   // (enforced where they are created), but an account still holding an older
   // mixed PIN has to be able to type it, or stripping would lock it out.
   // inputmode brings up the number pad, which is the part that matters daily.
+
+  /* The login ID is not a secret and it never changes for a given person, so
+     retyping it every morning is pure friction - and a mistyped ID is one of
+     the two ways sign-in fails. It is remembered; the PIN never is. */
+  try{
+    const last = localStorage.getItem('ckl_last_id');
+    if(last && code && !code.value) code.value = last;
+  }catch(e){}
+  if(code && code.value && pin) pin.focus(); else if(code) code.focus();
+
+  // typing clears a stale error, so the red text never outlives what caused it
+  [code, pin].forEach(el=>{ if(el) el.addEventListener('input', ()=>{
+    const err = $('#lerr'); if(err && err.textContent) err.textContent = '';
+  }); });
 })();
 
 /* ---- new-version watch ---------------------------------------------------
@@ -7485,8 +7550,8 @@ if(STANDALONE){
   if(CLOUD){
     // a saved database session means the person is still signed in
     if(Cloud.loadSession()){
-      Auth.enter().catch(()=>{ Cloud.saveSession(null); $('#lcode').focus(); });
-    } else { $('#lcode').focus(); }
+      Auth.enter().catch(()=>{ Cloud.saveSession(null); Auth.land(); });
+    } else { Auth.land(); }
     return;
   }
   try{
@@ -7496,6 +7561,6 @@ if(STANDALONE){
       if(SESSION.role==='wholesaler' && !party(SESSION.partyId)) SESSION = null;
     }
   }catch(e){ SESSION = null; }
-  if(SESSION) Auth.enter(); else { $('#lcode').focus(); }
+  if(SESSION) Auth.enter(); else Auth.land();
 })();
 </script>
