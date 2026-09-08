@@ -1,0 +1,7 @@
+# If you have found a security problem in the CKL wholesale portal, please
+# tell us before telling anyone else. We would rather hear it awkwardly than
+# read about it later.
+Contact: mailto:shlokjethwa14@gmail.com
+Preferred-Languages: en, hi, gu
+Canonical: https://cklonline.in/.well-known/security.txt
+Expires: 2027-09-08T00:00:00.000Z

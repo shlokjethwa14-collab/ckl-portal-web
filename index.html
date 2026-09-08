@@ -1,6 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#e9ebf1">
+<!-- A private trade portal. Nothing here is meant to be found in a search
+     result, and the pages behind the sign-in are nobody else's business. -->
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>CKL — Cotts Knits Loungewear · Wholesale Portal</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Cpolygon%20points='10,50%2090,7%2090,30%2042,50'%20fill='%230d0d10'/%3E%3Cpolygon%20points='10,50%2042,50%2090,70%2090,93'%20fill='%23f10000'/%3E%3C/svg%3E">
 <style>
@@ -127,8 +134,15 @@ body{
   mix-blend-mode:overlay;
 }
 
-/* glass sheen sweep on hover */
-.sheen{overflow:hidden}
+/* glass sheen sweep on hover.
+   This used to be overflow:hidden, which makes the element a scrolling box.
+   On a small phone the sign-in card is taller than the screen, so when the
+   keyboard opened and the browser scrolled the focused field into view it
+   scrolled INSIDE the card — carrying the logo, the title and the theme
+   switch up out of sight behind a clipped edge. overflow:clip trims the sheen
+   exactly the same way without ever becoming a scroll container, so the page
+   scrolls instead, which is what everyone expects. */
+.sheen{overflow:clip}
 .sheen>.sheen-l{
   position:absolute; inset:-40% -60%; pointer-events:none; opacity:0;
   background:linear-gradient(104deg,transparent 38%,rgba(255,255,255,.55) 50%,transparent 62%);
@@ -187,9 +201,14 @@ input:focus,select:focus,textarea:focus{
   box-shadow:0 0 0 3px var(--red-wash);
 }
 input[type=number]{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
-label.fl{display:block; margin-bottom:14px}
-label.fl>span{display:block; font-size:11px; font-weight:600; color:var(--muted);
+/* .fl is usually a <label> wrapping its own field. Where a field needs a
+   second control beside it (the PIN's Show button) the wrapper has to be a
+   plain element with a real <label for> inside, because one label may only
+   name one control — so both shapes are styled the same. */
+.fl{display:block; margin-bottom:14px}
+.fl>span,.fl>label>span{display:block; font-size:11px; font-weight:600; color:var(--muted);
   margin-bottom:5px; letter-spacing:.01em}
+.fl>label{display:block}
 .row{display:flex; gap:12px} .row>*{flex:1; min-width:0}
 
 /* ---- chips / badges ---- */
@@ -210,6 +229,10 @@ label.fl>span{display:block; font-size:11px; font-weight:600; color:var(--muted)
 
 /* ============ LOGIN ============ */
 #login{min-height:100dvh; display:grid; place-items:center; padding:24px}
+/* Centring a card that is taller than the screen pushes its top off the top.
+   On a short screen — a small phone, or any phone once the keyboard is up —
+   start at the top and let the page scroll normally. */
+@media (max-height:700px){ #login{place-items:start center} }
 .login-card{width:min(420px,100%); padding:36px 34px 30px; border-radius:var(--r-xl); box-shadow:var(--sh-3)}
 .mark{display:flex; align-items:center; gap:12px; margin-bottom:26px}
 .mark .m-badge{width:46px;height:46px;border-radius:14px;background:var(--ink);color:#fff;
@@ -223,6 +246,11 @@ label.fl>span{display:block; font-size:11px; font-weight:600; color:var(--muted)
   background:transparent; color:var(--muted); cursor:pointer; font-family:var(--f-body);
   transition:background var(--d-2) var(--e), color var(--d-2) var(--e), box-shadow var(--d-2) var(--e)}
 .seg button[aria-selected=true]{background:#fff; color:var(--ink); box-shadow:var(--sh-1)}
+/* Out of the way until it is focused, then plainly visible. */
+.skip{position:absolute; left:-9999px; top:0; z-index:200;
+  background:var(--card,#fff); color:var(--ink); padding:10px 16px; border-radius:0 0 10px 0;
+  font-weight:600; font-size:13px; box-shadow:var(--sh-2); text-decoration:none}
+.skip:focus{left:0}
 .pin-row{display:flex; gap:8px; align-items:stretch}
 .pin-row input{text-align:center; font-family:var(--f-mono); font-size:16px; letter-spacing:.3em; font-weight:500}
 .pin-row .pineye{flex:none; align-self:stretch; padding:0 13px; min-width:62px;
@@ -258,6 +286,14 @@ nav.tabs{display:flex; gap:3px; padding:5px clamp(10px,3vw,24px); overflow-x:aut
   background:rgba(250,250,251,.6); -webkit-backdrop-filter:var(--blur); backdrop-filter:var(--blur);
   border-bottom:1px solid var(--line-2); position:sticky; top:59px; z-index:55; scrollbar-width:none}
 nav.tabs::-webkit-scrollbar{display:none}
+/* The strip is ~690px of tabs on a 360px phone and the scrollbar is hidden, so
+   there was nothing at all to say that Logins and Excel existed further along.
+   Fading the trailing edge is the standard, quiet way of saying "more this
+   way"; when everything fits, there is nothing to fade. */
+@media (max-width:820px){
+  nav.tabs{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+           mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent)}
+}
 nav.tabs button{position:relative; padding:9px 14px; font-size:12.5px; font-weight:600; border:0;
   background:transparent; color:var(--muted); cursor:pointer; border-radius:10px; white-space:nowrap;
   font-family:var(--f-body); transition:color var(--d-2) var(--e), background var(--d-2) var(--e)}
@@ -291,8 +327,8 @@ main{flex:1; padding:22px clamp(14px,3vw,28px) 130px; max-width:1520px; width:10
    placeholder that vanishes the moment someone types */
 .tools{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px}
 .tools input,.tools select{width:auto; min-width:150px}
-.tools label.fl{margin:0; min-width:150px}
-.tools label.fl input,.tools label.fl select{width:100%; min-width:0}
+.tools .fl{margin:0; min-width:150px}
+.tools .fl input,.tools .fl select{width:100%; min-width:0}
 .tools .grow{flex:1; min-width:200px}
 .tools .btn{margin-bottom:1px}
 
@@ -701,6 +737,12 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none; appear
 [data-theme="dark"] .themesw{background:var(--n-lo); box-shadow:var(--in-sm)}
 [data-theme="dark"] .themesw button[aria-checked=true]{background:var(--nbg); box-shadow:var(--up-xs); color:var(--ink)}
 #loginTheme{position:absolute; top:16px; right:16px; z-index:2}
+/* Pinned to the card's corner, which is fine until the card is 272px wide: on
+   a 320px phone the switch sat squarely on top of the logo. Below that width
+   it drops into the flow above the mark rather than covering it. */
+@media (max-width:400px){
+  #loginTheme{position:static; display:flex; justify-content:flex-end; margin:0 0 16px}
+}
 /* on a phone the header is tight — the icons alone still read */
 @media (max-width:760px){ .topbar .themesw button span{display:none}
   .topbar .themesw button{padding:6px 9px} }
@@ -1217,6 +1259,8 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
   document.documentElement.setAttribute('data-theme', t);
 })();
 </script>
+</head>
+<body>
 
 <div class="field"><i></i></div>
 
@@ -1244,7 +1288,10 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
       <!-- numbers only, and long enough for any PIN. The old maxlength of 8
            silently truncated longer ones, so the field could not hold what the
            person was typing and sign-in failed with no explanation. -->
-      <label class="fl"><span>PIN</span>
+      <!-- The label used to wrap both the PIN box and the Show button, which is
+           invalid markup and left the field's spoken name ambiguous. The label
+           now names one control and the button stands on its own. -->
+      <div class="fl"><label for="lpin"><span>PIN</span></label>
         <!-- No pattern here on purpose. A pattern of [0-9]* made the browser
              refuse to submit the form for any PIN containing a letter, with no
              message at all - the button simply did nothing. New PINs are
@@ -1254,7 +1301,8 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
                maxlength="24" autocomplete="current-password"
                enterkeyhint="go" placeholder="••••••">
           <button type="button" class="btn sm ghost pineye" id="lpineye"
-                  onclick="Auth.peek()" aria-label="Show PIN">Show</button></div></label>
+                  onclick="Auth.peek()" aria-controls="lpin" aria-pressed="false"
+                  aria-label="Show PIN">Show</button></div></div>
       <div class="err" id="lerr" role="alert" aria-live="assertive"></div>
       <button class="btn primary" id="signinBtn"
               style="width:100%; justify-content:center; padding:11px" type="submit">
@@ -1265,6 +1313,9 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
 
 <!-- ============ APP SHELL ============ -->
 <div id="app">
+  <!-- Anyone working by keyboard had to walk the whole header and tab strip on
+       every screen before reaching the actual content. -->
+  <a class="skip" href="#view">Skip to main content</a>
   <!-- topbar + tabs share one sticky wrapper, so the tab strip stays pinned
        directly under the header however many rows the header wraps to -->
   <div class="stickytop">
@@ -1286,7 +1337,12 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
 <!-- Clear deliberately does NOT live here. On a phone every bar button becomes
      equal width under the thumb, and one mis-tap would delete a 300-piece
      order. Clearing belongs on the review screen, behind a confirmation. -->
-<div id="cartbar">
+<!-- Slid off-screen, but still in the tab order and still read out: on the
+     sign-in page a keyboard or screen-reader user reached "Review" and "Place
+     order" before they had signed in at all. Cart.paint() marks it correctly
+     once there is a signed-in buyer with something in the draft; until it runs,
+     the markup itself has to be honest. -->
+<div id="cartbar" inert aria-hidden="true">
   <div class="cs">
     <div class="l">Current order <span id="cartSave" class="csave"></span></div>
     <div class="v" id="cartTxt">—</div>
@@ -1333,7 +1389,7 @@ const LS_KEY  = 'ckl_portal_v1';
    could sit unseen for hours - long enough to report a fixed bug as still
    broken. version.txt is fetched past every cache and compared with the stamp
    built into this copy; when they differ, a bar offers a reload. */
-const APP_VERSION = '2026-09-08-03';
+const APP_VERSION = '2026-09-08-04';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -1343,7 +1399,17 @@ const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const uid = p => p+'_'+Math.random().toString(36).slice(2,9);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
+/* num() is for counts — pieces, boxes, minimums. It deliberately drops any
+   fraction, because half a piece is not a thing.
+   dec() is for anything measured in money or percent. Sending a rate of 365.75
+   through num() returned 365, and because the same helper was used on the way
+   OUT to the database as well, the 75 paise were not merely displayed wrong,
+   they were written back gone. Money never touches num(). */
 const num = v => { const n = parseInt(v,10); return isNaN(n)?0:n; };
+const dec = v => { const n = Number(v); return isFinite(n) ? n : 0; };
+/* Rates and percentages, rounded to the paisa exactly as the SQL does, so the
+   figure quoted on screen and the figure the server bills are the same. */
+const money2 = v => Math.round(dec(v) * 100) / 100;
 /* Paise appear only when there are any, so whole-rupee figures stay clean but a
    chained discount that lands on 169.79 is never quietly shown as 170. */
 const money = n => {
@@ -1380,18 +1446,15 @@ function stagger(root, sel='.rv'){
     el.classList.add('in');
   });
 }
+/* Every number this reaches is a business figure — pieces, stock, a payable
+   total. Counting one up from zero meant that for over a second the screen
+   showed an amount that was simply not true: a 24 pcs / Rs 8,778 draft read
+   16 pcs / Rs 5,896 while the rows beside it already showed the real figure.
+   Nobody should have to wait to learn what they owe, and a wrong total should
+   never be photographable. The figure now appears at once, exact. The entrance
+   fade stays; only the lying digits are gone. */
 function countUp(el, to, fmt){
-  fmt = fmt || (n=>String(n));
-  // a hidden tab freezes rAF — show the real number rather than a stuck zero.
-  // Nav.animate is false on re-renders, where a count-up would be noise.
-  if(reduced() || document.hidden || !Nav.animate){ el.textContent = fmt(to); return; }
-  const dur = 1200, t0 = performance.now(), from = 0;
-  (function step(t){
-    const p = clamp((t-t0)/dur, 0, 1);
-    const e = 1 - Math.pow(1-p, 3);
-    el.textContent = fmt(Math.round(from + (to-from)*e));
-    if(p < 1) requestAnimationFrame(step);
-  })(t0);
+  el.textContent = (fmt || (n=>String(n)))(to);
 }
 function flyChip(fromEl, label){
   if(reduced() || !fromEl) return;
@@ -1470,18 +1533,26 @@ const Media = (()=>{
        migration, and in the meantime every wholesaler saw grey placeholders. */
     ROW: key => 'photo:' + key,
 
-    /** Fetch one photo out of the shared database. */
+    /** Fetch one photo out of the shared database.
+        A gap used to be remembered for the life of the tab, and a dropped
+        connection counted as a gap, so one bad moment on the train meant grey
+        placeholders until the page was reloaded — even after the office had
+        uploaded the picture. A genuine "the row is not there" is worth
+        remembering for a couple of minutes; a connection that failed is worth
+        remembering for a few seconds and no longer. */
     async pull(key){
-      if(Media._missing.has(key)) return null;  // don't re-ask for a known gap
+      const until = Media._missing.get(key);
+      if(until && until > Date.now()) return null;
       try{
         const rows = await Cloud.rest('settings?select=value&key=eq.'
-          + encodeURIComponent(Media.ROW(key)));
+          + encodeURIComponent(Media.ROW(key)), {timeout:20000});
         const d = rows && rows[0] && rows[0].value;
-        if(!d || typeof d !== 'string'){ Media._missing.add(key); return null; }
+        if(!d || typeof d !== 'string'){ Media._missing.set(key, Date.now() + 120000); return null; }
+        Media._missing.delete(key);
         return dataURLToBlob(d);
-      }catch(e){ Media._missing.add(key); return null; }
+      }catch(e){ Media._missing.set(key, Date.now() + 8000); return null; }
     },
-    _missing:new Set(),
+    _missing:new Map(),
 
     /** Put a photo where every device can reach it. */
     async push(key, blob){
@@ -1629,8 +1700,11 @@ function seed(){
     settings:{ company:'Cotts Knits Loungewear', short:'CKL', currency:'INR',
                gstNote:'Rates are net, per piece, ex-mill.', adminPin:ADMIN_PIN },
     wholesalers: [
-      {id:'w_01', code:'W01', pin:'1111', name:'Shree Balaji Hosiery', city:'Ludhiana',
-       phone:'919811100011', discount:5, active:true}
+      /* A demo party, deliberately not resembling a real customer. The name,
+         town and number of an actual firm had no business being in a file
+         anyone on the internet can read. */
+      {id:'w_01', code:'W01', pin:'1111', name:'Sample Buyer (demo)', city:'Demo City',
+       phone:'910000000000', discount:5, active:true}
     ],
     boxTypes: bt,
     articles: arts,
@@ -1682,28 +1756,121 @@ const Store = {
     catch(e){ toast('Could not save locally — storage full?', true); return false; }
   },
 
+  /* A save used to mirror the WHOLE in-memory database to the server: change
+     one stock cell and every style, every wholesaler, every order and the
+     settings were written back over whatever was there. With two people
+     working at once that is silent data loss — the second person to save
+     restored their own older copy of everything they had never touched, and
+     an order placed in between could have its stock deduction undone.
+
+     Each record is now compared against the copy this browser last agreed
+     with the server, and only records that genuinely differ are sent. A
+     record nobody here edited is never written, so it cannot be trampled. */
+  _clean: Object.create(null),
+  _gone: [],
+  _snapshot(){
+    const m = Object.create(null);
+    const put = (t,r) => { if(r && r.id != null) m[t + ':' + r.id] = JSON.stringify(r); };
+    (DB && DB.articles    || []).forEach(a => put('article', a));
+    (DB && DB.wholesalers || []).forEach(w => { if(w.id !== 'self') put('party', w); });
+    (DB && DB.boxTypes    || []).forEach(b => put('box', b));
+    (DB && DB.orders      || []).forEach(o => put('order', o));
+    m['settings'] = JSON.stringify((DB && DB.settings) || {});
+    return m;
+  },
+  /** The server's copy IS what we now hold — called after a full load. */
+  baseline(){ Store._clean = Store._snapshot(); },
+  /** The background poll replaces only the orders, so only the orders can be
+      declared in step. Declaring everything clean here would silently discard
+      an article edit that was still waiting to be sent. */
+  baselineOrders(){
+    const now = Store._snapshot();
+    Object.keys(now).forEach(k=>{ if(k.indexOf('order:') === 0) Store._clean[k] = now[k]; });
+    Object.keys(Store._clean).forEach(k=>{ if(k.indexOf('order:') === 0 && !(k in now)) delete Store._clean[k]; });
+  },
+  /** Removing a row from DB only hid it on this device: nothing ever told the
+      database, so the next reload brought the deleted style or wholesaler
+      straight back. A deletion is now a change like any other. */
+  drop(kind, id){ if(CLOUD && id) Store._gone.push({kind, id}); },
+
   /* Debounced so a screen that calls save() repeatedly sends one round of
      writes, not twenty. */
   _pushCloud(){
     clearTimeout(Store._t);
-    Store._t = setTimeout(async ()=>{
-      try{
-        const jobs = [];
-        (DB.articles||[]).forEach(a=>jobs.push(Cloud.saveArticle(a)));
-        (DB.wholesalers||[]).forEach(w=>{ if(w.id !== 'self') jobs.push(Cloud.saveParty(w)); });
-        (DB.boxTypes||[]).forEach(b=>jobs.push(Cloud.saveBoxType(b)));
-        (DB.orders||[]).forEach(o=>jobs.push(Cloud.saveOrder(o)));
-        // settings (company name, logo) were being left behind, so an uploaded
-        // logo vanished on the next refresh
-        if(DB.settings) jobs.push(Cloud.saveSettings(DB.settings));
-        await Promise.all(jobs);
-      }catch(e){
-        toast('Could not save to the database: ' + e.message, true);
-      }
+    Store._t = setTimeout(()=>{
+      Store.flush().catch(e=>{
+        toast('Could not save to the database: ' + (e && e.message || e), true);
+      });
     }, 400);
+  },
+
+  /** Awaitable. Resolves once every pending change is on the server, and
+      rejects with the first failure — so a screen can wait before it tells
+      anyone the work is saved, instead of announcing success and hoping. */
+  flush(){
+    if(!CLOUD) return Promise.resolve();
+    clearTimeout(Store._t);
+    if(Store._busy) return Store._busy.catch(()=>{}).then(()=>Store.flush());
+
+    const run = (async ()=>{
+      const now = Store._snapshot(), jobs = [];
+      const send = (key, fn) => {
+        if(Store._clean[key] === now[key]) return;     // untouched — never written
+        jobs.push(Promise.resolve().then(fn).then(()=>{ Store._clean[key] = now[key]; }));
+      };
+      (DB.articles||[]).forEach(a=>send('article:'+a.id, ()=>Cloud.saveArticle(a)));
+      (DB.wholesalers||[]).forEach(w=>{ if(w.id!=='self') send('party:'+w.id, ()=>Cloud.saveParty(w)); });
+      (DB.boxTypes||[]).forEach(b=>send('box:'+b.id, ()=>Cloud.saveBoxType(b)));
+      (DB.orders||[]).forEach(o=>send('order:'+o.id, ()=>Cloud.saveOrder(o)));
+      // settings (company name, logo) were being left behind, so an uploaded
+      // logo vanished on the next refresh
+      if(DB.settings) send('settings', ()=>Cloud.saveSettings(DB.settings));
+
+      const gone = Store._gone.splice(0);
+      gone.forEach(g=>jobs.push(
+        Cloud.remove(g.kind, g.id)
+          .then(()=>{ delete Store._clean[g.kind + ':' + g.id]; })
+          .catch(e=>{ Store._gone.push(g); throw e; })   // keep it for the next try
+      ));
+
+      if(!jobs.length) return;
+      const res = await Promise.allSettled(jobs);
+      const bad = res.find(r=>r.status === 'rejected');
+      if(bad) throw (bad.reason instanceof Error ? bad.reason : new Error(String(bad.reason)));
+    })();
+
+    Store._busy = run;
+    run.catch(()=>{}).then(()=>{ if(Store._busy === run) Store._busy = null; });
+    return run;
   },
   reset(){ if(LIVE || CLOUD) return false; DB = seed(); return Store.save(); }
 };
+
+/**
+ * Say "saved" only when it is saved.
+ *
+ * Every office screen used to change the copy in this browser, fire the write
+ * off without waiting, and announce success in the same breath. If the write
+ * then failed the screen still read "dispatched" or "filled" or "saved", and
+ * the real position was whatever the database had — which nobody was told.
+ * The stock figure you were looking at was fiction until the next reload.
+ *
+ * Now the announcement waits for the server. If the write fails, the screen
+ * says so and reloads the authoritative data, so what is on screen after a
+ * failure is what is really there rather than a hopeful guess.
+ */
+async function commit(okMsg){
+  if(!CLOUD){ if(okMsg) toast(okMsg); return true; }
+  try{
+    await Store.flush();
+    if(okMsg) toast(okMsg);
+    return true;
+  }catch(e){
+    toast('NOT saved — ' + (e && e.message || e), true);
+    try{ await Cloud.loadAll(); Nav.refresh(); }catch(_){}
+    return false;
+  }
+}
 
 /* lookups */
 const party   = id => DB.wholesalers.find(w=>w.id===id);
@@ -1723,7 +1890,22 @@ const boxType = id => {
   return (DB.boxTypes||[]).find(b=>b.id===id) || null;
 };
 /** Every box defined on a style, usable or not — the office needs to see all. */
-const boxesOf = a => (a && Array.isArray(a.boxes)) ? a.boxes.filter(b=>b && (b.mix||[]).length) : [];
+/* Boxes belong to the style. Styles saved before that change — and the demo
+   seed — hold ids pointing at the old shared list instead, and this read only
+   ever looked at the new field, so on a standalone copy a "box" or "both"
+   style offered no boxes at all: the admin screen said one thing and the
+   buyer's screen another. Cloud rows are converted as they load; converting
+   the legacy ids here as well means one shape everywhere, whatever the data
+   came from. */
+const boxesOf = a => {
+  if(!a) return [];
+  if(Array.isArray(a.boxes) && a.boxes.length)
+    return a.boxes.filter(b => b && (b.mix||[]).length);
+  return (a.boxTypeIds||[])
+    .map(id => (DB && DB.boxTypes || []).find(x => x.id === id))
+    .filter(b => b && (b.mix||[]).length)
+    .map(b => ({id:b.id, name:b.name, mix:b.mix}));
+};
 /* A box can only be packed if the style actually carries every shade it names.
    The old shared box list made this easy to get wrong: a "6-Colour Box" naming
    Dark Grey and Olive is meaningless on a style whose shades are DG and OC, and
@@ -1958,29 +2140,94 @@ const Cloud = {
   /** Swap an expired access token for a fresh one. */
   async renew(){
     if(!Cloud.refresh) return false;
-    const r = await fetch(DB_URL + '/auth/v1/token?grant_type=refresh_token', {
-      method:'POST', headers:{'apikey':DB_KEY,'Content-Type':'application/json'},
-      body: JSON.stringify({refresh_token: Cloud.refresh})
-    });
+    const ac = new AbortController();
+    const timer = setTimeout(()=>ac.abort(), 20000);
+    let r;
+    try{
+      r = await fetch(DB_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method:'POST', signal:ac.signal,
+        headers:{'apikey':DB_KEY,'Content-Type':'application/json'},
+        body: JSON.stringify({refresh_token: Cloud.refresh})
+      });
+    }catch(e){ return null; }   // could not reach the server — NOT proof the session is dead
+    finally{ clearTimeout(timer); }
     const j = await r.json().catch(()=>({}));
     if(!r.ok || !j.access_token) return false;
     Cloud.saveSession(j); return true;
   },
 
-  /** One REST call against the database. Retries once after renewing a token. */
+  /** The sign-in is over and cannot be renewed. Take the portal down to the
+      login screen rather than leaving somebody looking at business data behind
+      a session the server no longer honours, with every button quietly
+      failing. Runs once however many requests fail at the same moment. */
+  expired(){
+    if(Cloud._expiring || !SESSION) return;
+    Cloud._expiring = true;
+    try{
+      Cart.flushDraft();       // keep whatever they had typed, under their own key
+      if(Cloud.poll){ clearInterval(Cloud.poll); Cloud.poll = null; }
+      if(typeof Server !== 'undefined' && Server.stopPolling) Server.stopPolling();
+      clearTimeout(Store._t);
+      Store._clean = Object.create(null); Store._gone = [];
+      Cloud.token = null; Cloud.refresh = null;
+      try{ localStorage.removeItem('ckl_sb'); }catch(e){}
+      sessionStorage.removeItem('ckl_session');
+      SESSION = null; DB = null;
+      Cart.clear(true);
+      Guard.off();
+      $('#app').classList.remove('on');
+      const v = $('#view'); if(v) v.innerHTML = '';   // no stale figures left behind
+      const sc = $('#scrim'); if(sc) sc.remove();
+      document.body.style.overflow = '';
+      $('#login').style.display = '';
+      const e = $('#lerr'); if(e) e.textContent = 'Your sign-in expired. Please sign in again.';
+      const p = $('#lpin'); if(p) p.value = '';
+    }finally{
+      setTimeout(()=>{ Cloud._expiring = false; }, 1500);
+    }
+  },
+
+  /** One REST call against the database. Retries once after renewing a token.
+      Every call carries a deadline: a bare fetch on a hotel wifi or a half-open
+      mobile connection never settles at all, so signing in, saving or placing
+      an order could sit spinning with no error and no way out. */
   async rest(path, opts, _retried){
     opts = opts || {};
-    const r = await fetch(DB_URL + '/rest/v1/' + path, {
-      method: opts.method || 'GET',
-      headers: Object.assign({
-        'apikey': DB_KEY,
-        'Authorization': 'Bearer ' + (Cloud.token || DB_KEY),
-        'Content-Type': 'application/json'
-      }, opts.headers || {}),
-      body: opts.body ? JSON.stringify(opts.body) : undefined
-    });
-    if(r.status === 401 && !_retried && await Cloud.renew()){
-      return Cloud.rest(path, opts, true);
+    const ac = new AbortController();
+    const limit = opts.timeout || 30000;
+    const timer = setTimeout(()=>ac.abort(), limit);
+    let r;
+    try{
+      r = await fetch(DB_URL + '/rest/v1/' + path, {
+        method: opts.method || 'GET',
+        signal: ac.signal,
+        headers: Object.assign({
+          'apikey': DB_KEY,
+          'Authorization': 'Bearer ' + (Cloud.token || DB_KEY),
+          'Content-Type': 'application/json'
+        }, opts.headers || {}),
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      });
+    }catch(e){
+      if(e && e.name === 'AbortError')
+        throw new Error('The office system did not answer within ' + Math.round(limit/1000)
+                        + ' seconds. Check your connection and try again.');
+      throw new Error(Cloud.humanise(String(e && e.message || e)));
+    }finally{ clearTimeout(timer); }
+
+    if(r.status === 401 && !_retried){
+      const renewed = await Cloud.renew();
+      if(renewed === true) return Cloud.rest(path, opts, true);
+      // A renewal we could not even send is a network problem, not an expiry —
+      // signing someone out because their train went into a tunnel would be its
+      // own bug. Only a server that refuses the refresh ends the session.
+      if(renewed === null)
+        throw new Error('No connection to the office system. Nothing was changed.');
+      // The sign-in has genuinely lapsed. Leaving the screens up meant a person
+      // kept reading real business figures that were no longer theirs to see,
+      // while every button silently failed. End it properly instead.
+      Cloud.expired();
+      throw new Error('Your sign-in has expired. Please sign in again.');
     }
     const txt = await r.text();
     let j = null; try{ j = txt ? JSON.parse(txt) : null; }catch(e){ j = txt; }
@@ -1992,7 +2239,10 @@ const Cloud = {
   },
 
   /** Call a database function (used for placing orders atomically). */
-  rpc(fn, args){ return Cloud.rest('rpc/' + fn, {method:'POST', body: args || {}}); },
+  /* Placing an order does real work in the database — locking rows, taking
+     stock, numbering — so it is given longer than an ordinary read before the
+     deadline bites. */
+  rpc(fn, args){ return Cloud.rest('rpc/' + fn, {method:'POST', body: args || {}, timeout:45000}); },
 
   /** Turn a database error into something the office or a buyer can act on. */
   humanise(m){
@@ -2010,14 +2260,18 @@ const Cloud = {
     if(/EMPTY_ORDER/.test(m))           return 'Nothing in the draft.';
     if(/NOT_A_WHOLESALER/.test(m))      return 'This account cannot place orders.';
     if(/ACCOUNT_INACTIVE/.test(m))      return 'This account is on hold. Call the office.';
-    if(/Failed to fetch|NetworkError/i.test(m)) return 'No internet connection. Nothing was sent.';
+    /* This used to end "Nothing was sent." When a connection dies mid-request
+       that is not something the browser can know — the request may well have
+       arrived — and on an order it is the difference between "try again" and
+       "you have just ordered everything twice". */
+    if(/Failed to fetch|NetworkError/i.test(m)) return 'No connection to the office system.';
     return m;
   },
 
   /* ---- shape translation: database rows <-> what the views already expect ---- */
   toArticle(a){
     return { id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
-      rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
+      rate:dec(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
       orderMode:a.order_mode||'loose',
       // box_type_ids used to hold ids pointing at a shared table; it now holds
       // the box definitions themselves. Old rows are converted on the way in,
@@ -2031,7 +2285,7 @@ const Cloud = {
   },
   fromArticle(a){
     return { id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
-      rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
+      rate:money2(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
       order_mode:a.orderMode||'loose', box_type_ids:boxesOf(a),
       size_rates:a.sizeRates||{},
       visibility:a.visibility||'common', parties:a.parties||[],
@@ -2067,10 +2321,10 @@ const Cloud = {
   },
   toOrder(o){
     return { id:o.id, partyId:o.party_id, partyCode:o.party_code, partyName:o.party_name,
-      date:o.created_at, status:o.status, discount:num(o.discount), note:o.note||'',
-      totalQty:num(o.total_qty), totalValue:num(o.total_value),
+      date:o.created_at, status:o.status, discount:dec(o.discount), note:o.note||'',
+      totalQty:num(o.total_qty), totalValue:dec(o.total_value),
       lines:(o.lines||[]).map(l=>({articleId:l.articleId, code:l.code, name:l.name,
-        colour:l.colour, size:l.size, qty:num(l.qty), rate:num(l.rate)})),
+        colour:l.colour, size:l.size, qty:num(l.qty), rate:dec(l.rate)})),
       boxes:o.boxes||[] };
   },
 
@@ -2107,6 +2361,8 @@ const Cloud = {
     SESSION = Cloud.role === 'ADMIN'
       ? {role:'admin'}
       : {role:'wholesaler', partyId:Cloud.partyId};
+    // what we now hold IS the server's copy, so nothing here counts as an edit
+    Store.baseline();
     return DB;
   },
 
@@ -2162,7 +2418,15 @@ const Cloud = {
   },
   saveOrder(o){ return Cloud.rest('orders?id=eq.'+encodeURIComponent(o.id), {method:'PATCH',
     body:{ status:o.status, note:o.note, total_qty:o.totalQty,
-           total_value:o.totalValue, lines:o.lines }}); }
+           total_value:o.totalValue, lines:o.lines }}); },
+  /** Deleting a style or a wholesaler used to remove it from this browser and
+      nothing else, so it reappeared on the next reload. Orders are never
+      deleted — cancelling one sets its status. */
+  remove(kind, id){
+    const table = {article:'articles', party:'wholesalers', box:'box_types'}[kind];
+    if(!table) return Promise.resolve();
+    return Cloud.rest(table + '?id=eq.' + encodeURIComponent(id), {method:'DELETE'});
+  }
 };
 
 /* Sign-in. One field pair for everyone: the login ID decides the role, so the
@@ -2203,11 +2467,11 @@ const Server = {
     if(d.role === 'WHOLESALER'){
       DB.wholesalers = [{
         id:'self', code:d.profile.partyCode, name:d.profile.firmName,
-        city:d.profile.city, discount:num(d.profile.discountPct), active:true
+        city:d.profile.city, discount:dec(d.profile.discountPct), active:true
       }];
       DB.articles = (d.articles||[]).map(a=>({
         id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
-        rate:num(a.listRate), netRate:num(a.netRate), moq:num(a.moq),
+        rate:dec(a.listRate), netRate:dec(a.netRate), moq:num(a.moq),
         sizes:a.sizes||[], colours:a.colours||[],
         orderMode:(a.orderMode||'LOOSE').toLowerCase(),
         boxTypeIds:a.boxTypeIds||[], visibility:'common', parties:[],
@@ -2222,7 +2486,7 @@ const Server = {
         phone:w.phone, whatsapp:w.whatsapp, email:w.email, gstin:w.gstin,
         contactPerson:w.contactPerson, billingAddress:w.billingAddress,
         shippingAddress:w.shippingAddress, pincode:w.pincode,
-        discount:num(w.discountPct), active:w.active !== false
+        discount:dec(w.discountPct), active:w.active !== false
       }));
       const inv = {};
       (d.inventory||[]).forEach(i=>{
@@ -2230,7 +2494,7 @@ const Server = {
       });
       DB.articles = (d.articles||[]).map(a=>({
         id:a.id, code:a.code, name:a.name, fabric:a.fabric, segment:a.segment,
-        rate:num(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
+        rate:dec(a.rate), moq:num(a.moq), sizes:a.sizes||[], colours:a.colours||[],
         orderMode:(a.orderMode||'LOOSE').toLowerCase(),
         boxTypeIds:a.boxTypeIds||[],
         visibility:(a.visibility==='EXCLUSIVE')?'exclusive':'common',
@@ -2262,14 +2526,14 @@ const Server = {
       id:o.orderNo, _id:o.id, partyId:o.wholesalerId, partyCode:o.partyCode,
       partyName:o.partyName, date:o.createdAt,
       status:Server.statusLabel(o.status), rawStatus:o.status,
-      discount:num(o.discountPct), note:o.officeNote || o.customerNote || '',
+      discount:dec(o.discountPct), note:o.officeNote || o.customerNote || '',
       edited:!!o.editedAt,
-      totalQty:num(o.totalQty), totalValue:num(o.totalValue),
+      totalQty:num(o.totalQty), totalValue:dec(o.totalValue),
       lines:(o.lines||[]).map(l=>({
         lineId:l.id, articleId:l.articleId, code:l.articleCode, name:l.articleName,
         colour:l.colour, size:l.size, qty:num(l.orderedQty),
         dispatchedQty:num(l.dispatchedQty), pendingQty:num(l.pendingQty),
-        rate:num(l.netRate), lineType:l.lineType
+        rate:dec(l.netRate), lineType:l.lineType
       })),
       boxes:(o.boxes||[]).map(b=>({
         code:'', boxType:b.boxName, size:b.size, n:num(b.boxCount)
@@ -2326,6 +2590,7 @@ const Auth = {
     i.type = show ? 'text' : 'password';
     b.textContent = show ? 'Hide' : 'Show';
     b.setAttribute('aria-label', show ? 'Hide PIN' : 'Show PIN');
+    b.setAttribute('aria-pressed', show ? 'true' : 'false');
     i.focus();
   },
 
@@ -2395,14 +2660,8 @@ const Auth = {
               <p style="margin:0">Ring the CKL office. They set a new PIN for you in seconds from
                 the Logins screen, and tell you what it is.</p></div>
             <div class="sec"><h4>If you are the office desk</h4>
-              <p style="margin:0 0 8px">Your own account is the one nobody else can reset. Open your
-                Supabase project, go to <b>SQL Editor</b>, and run this - putting the PIN you want
-                between the quotes:</p>
-              <div class="mix" style="user-select:all">update auth.users set encrypted_password =
-extensions.crypt('YOUR-NEW-PIN', extensions.gen_salt('bf'))
- where email = 'admin@cklonline.in';</div>
-              <p class="tiny muted" style="margin:8px 0 0">Then sign in with login ID
-                <b class="mono">ADMIN</b> and that PIN.</p></div>`,
+              <p style="margin:0">Your own account is the one nobody else can reset for you. The
+                person who administers this portal can set it from the database directly.</p></div>`,
       foot:`<button class="btn accent" onclick="Modal.close()">Close</button>`
     });
   },
@@ -2445,6 +2704,7 @@ extensions.crypt('YOUR-NEW-PIN', extensions.gen_salt('bf'))
         try{
           const o = await Cloud.rest('orders?select=*&order=created_at.desc');
           DB.orders = (o||[]).map(Cloud.toOrder);
+          Store.baselineOrders();   // these came FROM the server; they are not our edits
           if(['orders','myorders','plan'].includes(Nav.cur)) Nav.refresh();
         }catch(e){}
       }, 20000);
@@ -2491,7 +2751,7 @@ extensions.crypt('YOUR-NEW-PIN', extensions.gen_salt('bf'))
       const p = d.profile || {};
       $('#roleLbl').textContent = 'Wholesale Portal';
       $('#whoName').textContent = p.firmName || d.name;
-      $('#whoSub').textContent  = [p.partyCode, p.city, (num(p.discountPct)||0) + '% off']
+      $('#whoSub').textContent  = [p.partyCode, p.city, (dec(p.discountPct)||0) + '% off']
                                     .filter(Boolean).join(' · ');
     }
     Nav.build();
@@ -2501,6 +2761,7 @@ extensions.crypt('YOUR-NEW-PIN', extensions.gen_salt('bf'))
   },
 
   async logout(){
+    Cart.flushDraft();          // the last quantity typed belongs to this party
     Server.stopPolling();
     if(Cloud.poll){ clearInterval(Cloud.poll); Cloud.poll = null; }
     if(CLOUD){ await Cloud.signOut(); DB = null; }
@@ -2542,10 +2803,45 @@ const Nav = {
   // true only while rendering a genuinely new tab; views read it so entrance
   // reveals and count-ups play once per tab change, not on every re-render
   animate:true,
+  /** Logins are created in the shared login system, so on a standalone copy
+      the screen can only fail. Offering a tab that answers "Request failed
+      (501)" is worse than not offering it. */
+  tabs(){
+    const list = SESSION.role==='admin' ? TABS_A : TABS_W;
+    return CLOUD ? list : list.filter(t => t.id !== 'logins');
+  },
+  /* These were buttons marked role="tab" with none of what that promises: no
+     tablist around them, no panel they claimed to control, and every one of
+     them a separate tab stop. A screen reader announced "tab, 1 of ?" for a
+     control that behaved like nothing of the sort. The pattern is now complete
+     — one tab stop for the whole strip, arrows to move between tabs, Home and
+     End for the ends, and a panel each tab actually names. */
   build(){
-    const tabs = SESSION.role==='admin' ? TABS_A : TABS_W;
-    $('#tabs').innerHTML = tabs.map(t =>
-      `<button role="tab" data-t="${t.id}" onclick="Nav.go('${t.id}')">${t.label}</button>`).join('');
+    const tabs = Nav.tabs();
+    const strip = $('#tabs');
+    strip.setAttribute('role', 'tablist');
+    strip.innerHTML = tabs.map(t =>
+      `<button role="tab" id="tab_${t.id}" data-t="${t.id}" aria-controls="view"
+               tabindex="-1" onclick="Nav.go('${t.id}')">${t.label}</button>`).join('');
+    if(!strip._keys){
+      strip._keys = true;
+      strip.addEventListener('keydown', e=>{
+        const keys = {ArrowRight:1, ArrowLeft:-1, Home:'first', End:'last'};
+        if(!(e.key in keys)) return;
+        const all = $$('#tabs button');
+        const at  = all.findIndex(b => b.dataset.t === Nav.cur);
+        let next;
+        if(keys[e.key] === 'first')     next = all[0];
+        else if(keys[e.key] === 'last') next = all[all.length-1];
+        else next = all[(at + keys[e.key] + all.length) % all.length];
+        if(!next) return;
+        e.preventDefault();
+        Nav.go(next.dataset.t);
+        next.focus();
+      });
+    }
+    const v = $('#view');
+    if(v) v.setAttribute('role', 'tabpanel');
     // a fresh sign-in is a tab change even if the id matches the last session's
     Nav.cur = null;
     Nav.go(tabs[0].id);
@@ -2554,13 +2850,20 @@ const Nav = {
     if(!SESSION) return;
     // a view only ever renders for the role that owns it — the office desk must
     // never land on a wholesaler view (and vice versa), whatever triggered it
-    const allowed = (SESSION.role==='admin' ? TABS_A : TABS_W).map(t=>t.id);
+    const allowed = Nav.tabs().map(t=>t.id);
     if(allowed.indexOf(id) < 0) id = allowed[0];
     const tabChanged = (Nav.cur !== id);
     Nav.animate = tabChanged;
     Nav.cur = id;
-    $$('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.t===id));
+    $$('#tabs button').forEach(b => {
+      const on = b.dataset.t === id;
+      b.setAttribute('aria-selected', on);
+      b.tabIndex = on ? 0 : -1;          // one tab stop for the strip, not nine
+      // on a phone the strip scrolls sideways; the tab you are on must be on screen
+      if(on && b.scrollIntoView) try{ b.scrollIntoView({block:'nearest', inline:'nearest'}); }catch(e){}
+    });
     const v = $('#view'); v.innerHTML = '';
+    v.setAttribute('aria-labelledby', 'tab_' + id);
     (Views[id] || (()=>{}))(v);
     applyLogo();                 // views may render their own [data-logo] slots
     if(tabChanged) stagger(v); else revealNow(v);
@@ -2630,14 +2933,14 @@ function discountList(w){
 /** Combined percentage off, chained, to two decimals. */
 function effDiscount(w){
   const list = discountList(w);
-  if(!list.length) return Math.round(num(w && w.discount) * 100) / 100;
+  if(!list.length) return money2(w && w.discount);
   const keep = list.reduce((k,d)=>k * (1 - d.pct/100), 1);
   return Math.round((1 - keep) * 10000) / 100;
 }
 /** "50% + 10% + 2%" — how a buyer would say it out loud. */
 function discountText(w){
   const list = discountList(w);
-  if(!list.length){ const d = num(w && w.discount); return d ? d + '% off' : ''; }
+  if(!list.length){ const d = money2(w && w.discount); return d ? d + '% off' : ''; }
   if(list.length === 1) return list[0].pct + '% off';
   return list.map(d=>d.pct + '%').join(' + ') + ' = ' + effDiscount(w) + '% off';
 }
@@ -2656,11 +2959,11 @@ function listRate(a, size){
   if(!a) return 0;
   const r = a.sizeRates && a.sizeRates[size];
   const n = Number(r);
-  return (r !== undefined && r !== null && r !== '' && isFinite(n) && n > 0) ? n : num(a.rate);
+  return (r !== undefined && r !== null && r !== '' && isFinite(n) && n > 0) ? n : dec(a.rate);
 }
 /** Does this style charge different rates for different sizes? */
 function hasSizeRates(a){
-  return (a.sizes||[]).some(z => listRate(a, z) !== num(a.rate));
+  return (a.sizes||[]).some(z => listRate(a, z) !== dec(a.rate));
 }
 /** The spread a buyer sees on the card, e.g. "395 - 445". */
 function rateRange(a){
@@ -2671,7 +2974,7 @@ function rateRange(a){
 
 /* The net rate for one size, rounded the way the database rounds it. */
 function netRate(a, size){
-  const base = size === undefined ? num(a.rate) : listRate(a, size);
+  const base = size === undefined ? dec(a.rate) : listRate(a, size);
   if(!SESSION || SESSION.role==='admin') return base;
   const w = party(SESSION.partyId);
   return Math.round(base * (100 - effDiscount(w))) / 100;
@@ -2823,15 +3126,32 @@ const Cart = {
     if(SESSION._preview) return;
     Cart.mark('saving');
     clearTimeout(Cart.saveTimer);
-    Cart.saveTimer = setTimeout(()=>{
+    /* The write used to read SESSION, the cart and the storage key when the
+       timer fired, six-tenths of a second later. Sign out and straight back in
+       as somebody else inside that window and one firm's order was written
+       under the other firm's name. The key and the contents are settled NOW,
+       at the moment of the edit, and the timer only writes what it was given. */
+    const key   = Cart.KEY();
+    const owner = SESSION.partyId;
+    const body  = JSON.stringify({v:1, at:Date.now(), data:Cart.data, note:Cart.note||''});
+    const empty = !Cart.totals().pcs;
+    Cart._write = ()=>{
+      Cart._write = null;
+      // whoever is signed in now, this snapshot belongs to the party it came from
       try{
-        const t = Cart.totals();
-        if(!t.pcs) localStorage.removeItem(Cart.KEY());
-        else localStorage.setItem(Cart.KEY(), JSON.stringify(
-          {v:1, at:Date.now(), data:Cart.data, note:Cart.note||''}));
-        Cart.mark('saved');
-      }catch(e){ Cart.mark('failed'); }
-    }, 600);
+        if(empty) localStorage.removeItem(key);
+        else localStorage.setItem(key, body);
+        if(SESSION && SESSION.partyId === owner) Cart.mark('saved');
+      }catch(e){ if(SESSION && SESSION.partyId === owner) Cart.mark('failed'); }
+    };
+    Cart.saveTimer = setTimeout(()=>Cart._write && Cart._write(), 600);
+  },
+  /** Write the pending draft out now. Called before signing out and when the
+      page is being closed, so the last thing typed is not the one change that
+      never reached the disk. */
+  flushDraft(){
+    clearTimeout(Cart.saveTimer);
+    if(Cart._write) Cart._write();
   },
   mark(state){
     const el = $('#cartSave'); if(!el) return;
@@ -2853,13 +3173,29 @@ const Cart = {
       const a = article(aid);
       // an article withdrawn or hidden since the order was saved cannot come back
       if(!a || a.active === false){ dropped++; continue; }
-      const e = {lines:{}, boxes:(saved.data[aid].boxes||[])};
+      const e = {lines:{}, boxes:[]};
       Object.keys(saved.data[aid].lines||{}).forEach(k=>{
         const [c,z] = k.split('|');
         if(!a.colours.includes(c) || !a.sizes.includes(z)){ dropped++; return; }
         let q = Math.max(0, num(saved.data[aid].lines[k]));
         if(isReady(a)) q = Math.min(q, num(a.stock[k]));   // stock may have moved
         if(q > 0){ e.lines[k] = q; pcs += q; }
+      });
+      /* The lines above are checked against the style as it is today; the box
+         records used to be copied across untouched. A box the office has since
+         edited or deleted therefore came back describing a packing that no
+         longer exists, and the review screen and the order would have said one
+         thing while the pieces said another. A box now has to still exist, and
+         its pieces have to still be in the draft after the checks above, or it
+         is not a box any more — the pieces stay, the box description goes. */
+      (saved.data[aid].boxes||[]).forEach(b=>{
+        const bt = boxType(b.btId);
+        if(!bt || !a.sizes.includes(b.size)){ dropped++; return; }
+        const n = Math.max(0, num(b.n)); if(!n){ return; }
+        const fits = (bt.mix||[]).every(m =>
+          num(e.lines[m.colour + '|' + b.size]) >= num(m.qty) * n);
+        if(fits) e.boxes.push({btId:b.btId, size:b.size, n});
+        else dropped++;
       });
       if(Object.keys(e.lines).length) kept[aid] = e;
     }
@@ -2926,26 +3262,57 @@ const Cart = {
 
     Cart.submitting = true;
     Cart.setPlacing(true, 'Submitting…');
+
+    /* Placing an order is two separate things: the server committing it, and
+       this screen catching up afterwards. They used to sit in one try block,
+       so a refresh that failed AFTER a real order had been taken produced
+       "Order NOT submitted — nothing was sent", with the draft already
+       emptied. Both halves of that were false, and a buyer who believed it and
+       re-entered the order would have been billed twice and had stock taken
+       twice. Commit and catch-up are now told apart. */
+    let res = null;
     try{
-      const res = await Cloud.rpc('place_order',
+      res = await Cloud.rpc('place_order',
         {p_lines:lines, p_boxes:boxes, p_note:Cart.note || ''});
-      Cart.data = {}; Cart.note = ''; Cart.paint();
-      // refresh from the database so stock and orders are what the server says
-      await Cloud.loadAll();
-      toast(`Order ${res.id} confirmed · ${res.totalQty} pcs`);
-      Nav.go('myorders');
     }catch(e){
-      Modal.show({
-        title:'Order NOT submitted',
-        sub:'Your draft is safe and still here',
-        body:`<div class="warnbox" style="margin:0">${esc(e.message)}</div>
-              <p class="tiny muted" style="margin:12px 0 0">Nothing was sent to the office and no
-                 stock was taken. Fix the problem above and try again.</p>`,
-        foot:`<button class="btn primary" onclick="Modal.close()">Close</button>`
-      });
-    }finally{
+      // Nothing came back at all. A refused order (no stock, MOQ, permission)
+      // reaches us as a message and is genuinely not placed; a connection that
+      // died mid-flight is NOT proof either way, so it must not be described
+      // as "nothing was sent" and must never be retried blind.
+      const unclear = /Failed to fetch|NetworkError|No connection|did not answer|timed out|aborted/i.test(e.message);
       Cart.submitting = false;
       Cart.setPlacing(false, 'Place order');
+      Modal.show({
+        title: unclear ? 'Could not confirm this order' : 'Order NOT submitted',
+        sub: unclear ? 'Check My Orders before sending it again'
+                     : 'Your draft is safe and still here',
+        body:`<div class="warnbox" style="margin:0">${esc(e.message)}</div>`
+          + (unclear
+            ? `<p class="tiny muted" style="margin:12px 0 0">The connection dropped before the office
+                 answered, so we cannot tell whether the order reached them. Your draft has been kept.
+                 Open <b>My Orders</b> first — if it is listed there it went through, and sending it
+                 again would order everything twice.</p>`
+            : `<p class="tiny muted" style="margin:12px 0 0">Nothing was sent to the office and no
+                 stock was taken. Fix the problem above and try again.</p>`),
+        foot: unclear
+          ? `<button class="btn" onclick="Modal.close()">Close</button>
+             <button class="btn primary" onclick="Modal.close();Nav.go('myorders')">Open My Orders</button>`
+          : `<button class="btn primary" onclick="Modal.close()">Close</button>`
+      });
+      return;
+    }
+
+    // Past this line the order EXISTS. Nothing that follows may suggest otherwise.
+    Cart.data = {}; Cart.note = ''; Cart.paint();
+    Cart.submitting = false;
+    Cart.setPlacing(false, 'Place order');
+    toast(`Order ${res.id} confirmed · ${res.totalQty} pcs`);
+    Nav.go('myorders');
+    try{
+      await Cloud.loadAll();        // stock and orders as the server now has them
+      Nav.refresh();
+    }catch(e){
+      toast(`Order ${res.id} is confirmed — this screen could not refresh. Reload to see it.`, true);
     }
   },
 
@@ -3054,7 +3421,7 @@ const Cart = {
       partyId: w.id, partyCode: w.code, partyName: w.name,
       date: new Date().toISOString(),
       status: 'New',
-      discount: num(w.discount),
+      discount: dec(w.discount),
       note: '',
       lines: [], boxes: [],
       totalQty: 0, totalValue: 0
@@ -3276,7 +3643,7 @@ const Quick = {
           ? totalStock(a) + ' pcs ready'
           : 'Made to order'}</span>
         <span class="chip">MOQ ${a.moq}</span>
-        ${num(a.rate) ? `<span class="qrate mono">${rr.varies
+        ${dec(a.rate) ? `<span class="qrate mono">${rr.varies
             ? money(rr.lo) + '–' + money(rr.hi) : money(netRate(a))}</span>`
           : '<span class="chip red">No rate set</span>'}
       </div>
@@ -3414,6 +3781,7 @@ function loosePaneHTML(a){
       return `<td><div class="cell">
         <input type="number" min="0" step="1" ${dis?'disabled':''} value=""
                data-a="${a.id}" data-c="${esc(c)}" data-z="${esc(z)}"
+               aria-label="${esc(a.code + ' ' + c + ' ' + z + ' — quantity to order')}"
                ${left!==null?`max="${left}"`:''} oninput="Card.cell(this)">
         <div class="left ${lo?'lo':''}">${left===null?'':(dis?'—':left+' left')}</div>
       </div></td>`;
@@ -4449,7 +4817,7 @@ const OrderModal = {
           <div><div class="k">Status</div><div class="v"><span class="st ${stKey(o.status)}">${esc(o.status)}</span></div></div>
           <div><div class="k">Pieces</div><div class="v mono">${o.totalQty}</div></div>
           <div><div class="k">Value</div><div class="v mono">${money(o.totalValue)}</div></div>
-          <div><div class="k">Discount</div><div class="v mono">${num(o.discount)}%</div></div>
+          <div><div class="k">Discount</div><div class="v mono">${dec(o.discount)}%</div></div>
         </div></div>
         ${note}${boxes}${artBlocks}${flow}`,
       foot: `<button class="btn" onclick="CSV.order('${o.id}')">Export CSV</button>
@@ -4494,7 +4862,7 @@ const OrderModal = {
             <button class="btn accent" onclick="OrderModal.applyEdit('${o.id}')">Save changes</button>`
     });
   },
-  applyEdit(id){
+  async applyEdit(id){
     const o = DB.orders.find(x=>x.id===id); if(!o) return;
     if(!OPEN_ST.includes(o.status)){ toast('Only orders still in the factory can be edited', true); return; }
 
@@ -4533,7 +4901,7 @@ const OrderModal = {
     // 3. rebuild the order
     o.lines = o.lines.map((l,i)=>Object.assign({}, l, {qty:wants[i]})).filter(l=>l.qty>0);
     o.totalQty   = o.lines.reduce((t,l)=>t+num(l.qty), 0);
-    o.totalValue = o.lines.reduce((t,l)=>t+num(l.qty)*num(l.rate), 0);
+    o.totalValue = money2(o.lines.reduce((t,l)=>t+num(l.qty)*dec(l.rate), 0));
     o.note = note;
     if(changedLines){ o.edited = true; o.editedAt = new Date().toISOString(); }
 
@@ -4541,9 +4909,13 @@ const OrderModal = {
     Sync.push('updateOrder', {order:o});
     Object.values(touched).forEach(a=>Sync.push('upsertArticle', {article:a}));
     Nav.refresh();
-    toast(`${o.id} updated · ${o.totalQty} pcs now`
-          + (capped.length ? ` · capped: ${capped.slice(0,2).join(', ')}${capped.length>2?'…':''}` : ''),
-          !!capped.length);
+    if(capped.length){
+      await Store.flush().catch(()=>{});
+      toast(`${o.id} updated · ${o.totalQty} pcs now · capped: `
+            + capped.slice(0,2).join(', ') + (capped.length>2?'…':''), true);
+    } else {
+      await commit(`${o.id} updated · ${o.totalQty} pcs now`);
+    }
     OrderModal.open(id);
   },
   /** Copy a past order back into the draft. Ready-stock lines are clamped to
@@ -4622,7 +4994,13 @@ const OrderModal = {
               onclick="Modal.close();OrderModal.setStatus('${esc(id)}','${s}')">${cta}</button>`
     });
   },
-  setStatus(id, s){
+  /* Cancelling returns stock and reopening takes it back, so this writes the
+     order AND several styles. Those are separate rows, and a browser cannot
+     make separate rows change together — if the network drops between them the
+     order and the stock disagree. What it CAN do is refuse to claim success
+     until every one of those writes has landed, and reload the real position
+     if any of them did not. That is what happens below. */
+  async setStatus(id, s){
     const o = DB.orders.find(x=>x.id===id); if(!o || o.status===s) return;
     // returning stock on cancel; re-deducting if un-cancelled
     if(s==='Cancelled' && o.status!=='Cancelled'){
@@ -4638,8 +5016,8 @@ const OrderModal = {
     }
     o.status = s; Store.save();
     Sync.push('setStatus', {id, status:s});
-    toast(s === 'Dispatched' ? `${id} dispatched — out of the factory` : `${id} → ${s}`);
     Modal.close(); Nav.refresh();
+    await commit(s === 'Dispatched' ? `${id} dispatched — out of the factory` : `${id} → ${s}`);
   }
 };
 
@@ -4759,7 +5137,13 @@ Views.stock = function(v){
         <tbody>${a.colours.map(c=>`<tr><td class="lbl">${esc(c)}</td>
           ${a.sizes.map(z=>{
             const q = num(a.stock[c+'|'+z]);
+            /* Every one of these boxes looked identical to a screen reader —
+               "spin button, blank" — across a grid of hundreds. Somebody
+               working by keyboard or by ear had no way to tell which shade and
+               size they were about to change the shelf count for. */
+            const label = `${a.code} ${c} ${z} — pieces in ready stock`;
             return `<td><div class="cell"><input type="number" min="0" step="1" value="${q}"
+              aria-label="${esc(label)}" title="${esc(label)}"
               class="${q>0&&q<=12?'':''}" data-sa="${a.id}" data-sc="${esc(c)}" data-sz="${esc(z)}"
               onchange="Stock.set(this)"></div></td>`;
           }).join('')}
@@ -4796,7 +5180,12 @@ const Stock = {
     let failed = 0;
     for(const a of list){
       try{
-        if(CLOUD) await Cloud.saveArticle(a);
+        if(CLOUD){
+          await Cloud.saveArticle(a);
+          // this style now matches the server, so the general save has no
+          // reason to write it again
+          Store._clean['article:' + a.id] = JSON.stringify(a);
+        }
         else Sync.push('upsertArticle', {article:a});
       }catch(e){ failed++; Stock._pending.add(a); }   // keep it for the next try
     }
@@ -4819,11 +5208,12 @@ const Stock = {
             <button class="btn accent" onclick="Stock.doFill('${aid}')">Fill</button>`
     });
   },
-  doFill(aid){
+  async doFill(aid){
     const a = article(aid); const q = Math.max(0, num($('#fillq').value));
     a.colours.forEach(c=>a.sizes.forEach(z=>a.stock[c+'|'+z]=q));
     Store.save(); Sync.push('upsertArticle', {article:a});
-    Modal.close(); Nav.refresh(); toast(`${a.code} filled to ${q} per cell`);
+    Modal.close(); Nav.refresh();
+    await commit(`${a.code} filled to ${q} per cell`);
   },
   async saveAll(){
     Store.save();
@@ -4856,13 +5246,13 @@ const Stock = {
               Start tracking</button>`
     });
   },
-  doEnable(aid){
+  async doEnable(aid){
     const a = article(aid); if(!a || a.stockMode==='ready') return;
     a.stockMode = 'ready';
     a.colours.forEach(c=>a.sizes.forEach(z=>{ const k=c+'|'+z; a.stock[k]=num(a.stock[k]); }));
     Store.save(); Sync.push('upsertArticle', {article:a});
     Nav.refresh();
-    toast(`${a.code} now tracks ready stock — enter what's on the shelf`);
+    await commit(`${a.code} now tracks ready stock — enter what's on the shelf`);
   },
 
   /** Receive (+1) or Dispatch (−1), entered size-wise: pick a size, type a
@@ -5069,7 +5459,7 @@ const Stock = {
     const mx = $('#stkMix');
     if(mx) mx.innerHTML = mix.map(m=>`<b>${m.qty}</b>× ${esc(m.colour)}`).join(' &nbsp;·&nbsp; ')
       + ` &nbsp;=&nbsp; <b>${per}</b> pcs per box`
-      + ` &nbsp;·&nbsp; <b>${money(per * num(a.rate))}</b> a box`;
+      + ` &nbsp;·&nbsp; <b>${money(per * dec(a.rate))}</b> a box`;
 
     const rows = $('#stkBoxRows');
     if(rows) rows.innerHTML = a.sizes.map(z=>{
@@ -5113,7 +5503,7 @@ const Stock = {
   },
   badges(){
     const t = $('#stkTot'), val = $('#stkVal');
-    const a = article(Stock._aid), rate = a ? num(a.rate) : 0;
+    const a = article(Stock._aid), rate = a ? dec(a.rate) : 0;
     if(Stock._mode === 'box'){
       const per = Stock.mixFor().reduce((s,m)=>s+m.qty,0);
       const boxes = Object.keys(Stock._boxes).reduce((s,z)=>s+num(Stock._boxes[z]), 0);
@@ -5144,7 +5534,7 @@ const Stock = {
     });
     return out;
   },
-  applyAdjust(){
+  async applyAdjust(){
     const a = article(Stock._aid); if(!a) return;
     const dir = Stock._dir, byBox = Stock._mode === 'box';
     const stage = byBox ? Stock.boxDeltas() : Stock._stage;
@@ -5176,9 +5566,15 @@ const Stock = {
     Modal.close(); Nav.refresh();
     const boxes = byBox
       ? Object.keys(Stock._boxes).reduce((s,z)=>s+num(Stock._boxes[z]), 0) : 0;
-    toast(`${a.code}: ` + (byBox ? `${boxes} box${boxes===1?'':'es'} (${moved} pcs) ` : `${moved} pcs `)
-          + (dir>0?'received':'dispatched') + ` · ${money(moved * num(a.rate))}`
-          + (capped ? ` · ${capped} pcs skipped (not in stock)` : ''), !!capped);
+    const line = `${a.code}: `
+          + (byBox ? `${boxes} box${boxes===1?'':'es'} (${moved} pcs) ` : `${moved} pcs `)
+          + (dir>0?'received':'dispatched') + ` · ${money(moved * dec(a.rate))}`;
+    if(capped){
+      await Store.flush().catch(()=>{});
+      toast(line + ` · ${capped} pcs skipped (not in stock)`, true);
+    } else {
+      await commit(line);
+    }
   }
 };
 
@@ -5193,8 +5589,13 @@ Views.parties = function(v){
     <div class="glass tbl-wrap rv">
       ${!DB.wholesalers.length ? `<div class="empty"><h4>No wholesalers</h4><p>Add your first party.</p></div>` :
       `<div class="tbl-scroll"><table class="data stacks">
+        <!-- No PIN column. A PIN is a secret belonging to the person who uses
+             it, and printing it in a table meant anyone glancing at the office
+             screen could sign in as that buyer. Setting a new one lives on the
+             Logins screen, where it is written to the login system and never
+             read back. -->
         <thead><tr><th>Code</th><th>Party</th><th>City</th><th class="n">Discount</th>
-          <th class="n">Orders</th><th>PIN</th><th></th></tr></thead>
+          <th class="n">Orders</th><th></th></tr></thead>
         <tbody>${DB.wholesalers.map(w=>{
           const n = DB.orders.filter(o=>o.partyId===w.id).length;
           return `<tr data-find="${esc([w.code,w.name,w.city,w.state].filter(Boolean).join(' ').toLowerCase())}">
@@ -5203,7 +5604,6 @@ Views.parties = function(v){
             <td class="muted" data-l="City">${esc(w.city||'—')}</td>
             <td class="n" data-l="Discount" title="${esc(discountText(w))}">${effDiscount(w)}%${discountList(w).length>1?` <span class="tiny muted">(${discountList(w).map(d=>d.pct+"%").join("+")})</span>`:""}</td>
             <td class="n" data-l="Orders">${n}</td>
-            <td class="mono muted" data-l="PIN">${esc(w.pin)}</td>
             <td class="acts" style="text-align:right"><button class="btn xs" onclick="PartyForm.open('${w.id}')">Edit</button></td>
           </tr>`;
         }).join('')}</tbody></table></div>`}
@@ -5360,7 +5760,7 @@ const PartyForm = {
       });
     }catch(e){ err.textContent = e.message; btn.disabled = false; btn.textContent = 'Save login'; }
   },
-  save(id){
+  async save(id){
     const code = ($('#p_code').value||'').trim().toUpperCase();
     const name = ($('#p_name').value||'').trim();
     if(!code || !name){ toast('Party code and firm name are required', true); return; }
@@ -5382,19 +5782,21 @@ const PartyForm = {
     if(id){ Object.assign(party(id), rec); } else DB.wholesalers.push(rec);
     Store.save(); Sync.push('upsertParty', {party:rec});
     Modal.close(); Nav.refresh();
-    toast(discounts.length > 1
+    await commit(discounts.length > 1
       ? `${code} saved · ${discountText(rec)}`
       : 'Wholesaler saved');
   },
-  del(id){
+  async del(id){
     const w = party(id);
     const n = DB.orders.filter(o=>o.partyId===id).length;
     if(n){ toast(`${w.code} has ${n} order${n===1?'':'s'} — set to “On hold” instead`, true); return; }
     if(!confirm(`Delete ${w.code} — ${w.name}?`)) return;
     DB.wholesalers = DB.wholesalers.filter(x=>x.id!==id);
     DB.articles.forEach(a=>a.parties = (a.parties||[]).filter(p=>p!==id));
+    Store.drop('party', id);        // tell the database too, not just this screen
     Store.save(); Sync.push('upsertParty', {party:{id, _delete:true}});
-    Modal.close(); Nav.refresh(); toast('Wholesaler deleted');
+    Modal.close(); Nav.refresh();
+    await commit('Wholesaler deleted');
   }
 };
 
@@ -5424,7 +5826,7 @@ Views.articles = function(v){
           <td data-l="Article">${esc(a.name)} ${a.active===false?'<span class="chip">Off</span>':''}
             <div class="tiny muted">${a.colours.length} shades · ${a.sizes.length} sizes</div></td>
           <td class="muted tiny" data-l="Fabric">${esc(a.fabric)}</td>
-          <td class="n" data-l="Rate">${num(a.rate)
+          <td class="n" data-l="Rate">${dec(a.rate)
             ? money(a.rate)
             : '<span class="chip red" title="Buyers would be quoted zero">No rate</span>'}</td>
           <td class="n" data-l="MOQ">${a.moq}</td>
@@ -5597,7 +5999,7 @@ const ArtForm = {
           <label class="fl"><span>Fabric</span>
             <input id="a_fab" value="${esc(a.fabric)}" placeholder="4-Way Lycra · 240 GSM"></label>
           <div class="row"><label class="fl"><span>List rate (₹/pc)</span>
-            <input type="number" id="a_rate" min="0" value="${num(a.rate)}"></label>
+            <input type="number" id="a_rate" min="0" step="0.01" value="${dec(a.rate)}"></label>
             <label class="fl"><span>MOQ (pcs)</span>
             <input type="number" id="a_moq" min="1" value="${num(a.moq)||1}"></label>
             <label class="fl"><span>Listing</span><select id="a_active">
@@ -5785,16 +6187,16 @@ const ArtForm = {
     const have = (a && a.sizeRates) || {};
     box.innerHTML = sizes.length ? sizes.map(z=>`
       <label class="fl" style="margin:0"><span>${esc(z)}</span>
-        <input type="number" min="0" step="1" data-sr="${esc(z)}"
-               value="${have[z] !== undefined && have[z] !== '' ? num(have[z]) : ''}"
+        <input type="number" min="0" step="0.01" data-sr="${esc(z)}"
+               value="${have[z] !== undefined && have[z] !== '' ? dec(have[z]) : ''}"
                placeholder="same" oninput="ArtForm.rateSum()"></label>`).join('')
       : '<span class="tiny muted">Add the sizes above first.</span>';
     ArtForm.rateSum();
   },
   readRates(){
-    const base = num($('#a_rate').value), out = {};
+    const base = money2($('#a_rate').value), out = {};
     $$('[data-sr]').forEach(i=>{
-      const v = num(i.value);
+      const v = money2(i.value);
       // only a real, different figure is stored; blank means "same as the rate"
       if(i.value !== '' && v > 0 && v !== base) out[i.dataset.sr] = v;
     });
@@ -5802,7 +6204,7 @@ const ArtForm = {
   },
   rateSum(){
     const el = $('#a_ratesum'); if(!el) return;
-    const base = num($('#a_rate').value), rates = ArtForm.readRates();
+    const base = money2($('#a_rate').value), rates = ArtForm.readRates();
     const sizes = ArtForm.sizesNow();
     if(!sizes.length){ el.textContent = ''; return; }
     const groups = {};
@@ -5898,7 +6300,7 @@ const ArtForm = {
       id: id || uid('a'), code, name,
       fabric: ($('#a_fab').value||'').trim(),
       segment: $('#a_seg').value,
-      rate: num($('#a_rate').value), moq: Math.max(1, num($('#a_moq').value)),
+      rate: money2($('#a_rate').value), moq: Math.max(1, num($('#a_moq').value)),
       sizes, colours, orderMode: mode,
       boxes: (mode==='loose') ? [] : boxes,
       boxTypeIds: (mode==='loose') ? [] : boxes.map(b=>b.id),
@@ -5946,11 +6348,16 @@ const ArtForm = {
     ArtForm.gallery = []; ArtForm.removed = [];
     Modal.guard = null;                       // the work is stored; nothing to warn about
     Modal.close(true); Nav.refresh();
-    if(photoFail) toast('Article saved WITHOUT the new photo — it could not be uploaded: '
-      + photoFail + '. Try again when the connection is back.', true);
-    else if(Cloud._noSizeRates && Object.keys(rec.sizeRates||{}).length)
+    if(photoFail){
+      await Store.flush().catch(()=>{});
+      toast('Article saved WITHOUT the new photo — it could not be uploaded: '
+        + photoFail + '. Try again when the connection is back.', true);
+    } else if(Cloud._noSizeRates && Object.keys(rec.sizeRates||{}).length){
+      await Store.flush().catch(()=>{});
       toast('Saved — but size-wise rates need db/SIZE-PRICES.sql run once before they take effect', true);
-    else toast('Article saved');
+    } else {
+      await commit('Article saved');
+    }
   },
   async del(id){
     const a = article(id);
@@ -5959,8 +6366,10 @@ const ArtForm = {
     if(!confirm(`Delete ${a.code} — ${a.name}?`)) return;
     for(const k of (a.photoIds||[])){ try{ await Media.del(k); }catch(e){} }
     DB.articles = DB.articles.filter(x=>x.id!==id);
+    Store.drop('article', id);      // tell the database too, not just this screen
     Store.save(); Sync.push('upsertArticle', {article:{id, _delete:true}});
-    Modal.close(); Nav.refresh(); toast('Article deleted');
+    Modal.close(); Nav.refresh();
+    await commit('Article deleted');
   }
 };
 
@@ -6510,7 +6919,7 @@ const BoxForm = {
       + (mix.length === 1
          ? ' One shade only — you pick which shade each time you add or dispatch stock.' : '');
   },
-  save(id){
+  async save(id){
     const name = ($('#b_name').value||'').trim();
     const mix = BoxForm.read();
     if(!name){ toast('Give the box a name', true); return; }
@@ -6518,15 +6927,18 @@ const BoxForm = {
     const rec = {id: id||uid('bt'), name, note:($('#b_note').value||'').trim(), mix};
     if(id) Object.assign(boxType(id), rec); else DB.boxTypes.push(rec);
     Store.save(); Sync.push('upsertBoxType', {boxType:rec});
-    Modal.close(); Nav.refresh(); toast('Box type saved');
+    Modal.close(); Nav.refresh();
+    await commit('Box type saved');
   },
-  del(id){
+  async del(id){
     const used = DB.articles.filter(a=>(a.boxTypeIds||[]).includes(id));
     if(used.length){ toast(`In use by ${used.map(a=>a.code).join(', ')} — remove it there first`, true); return; }
     if(!confirm('Delete this box type?')) return;
     DB.boxTypes = DB.boxTypes.filter(b=>b.id!==id);
+    Store.drop('box', id);          // tell the database too, not just this screen
     Store.save(); Sync.push('deleteBoxType', {id});
-    Modal.close(); Nav.refresh(); toast('Box type deleted');
+    Modal.close(); Nav.refresh();
+    await commit('Box type deleted');
   }
 };
 
@@ -6619,7 +7031,29 @@ const Backup = {
        `ckl-backup-${todayISO()}${withPhotos?'-full':''}.json`, 'application/json');
     toast('Backup downloaded');
   },
+  /* Restore replaces the whole data set. On a single laptop that is a local
+     undo; against the shared database it was something else entirely — the
+     restored copy became this browser's idea of the truth and was pushed up
+     over live master data, stock, orders and accounts, from a file validated
+     only by "does it have an articles array". The wording said "this browser",
+     which is what made it dangerous: nobody clicking it expected to overwrite
+     the office. Restoring into the shared database is refused. Downloading a
+     backup is untouched, and restore still works on a standalone copy. */
   restore(){
+    if(CLOUD){
+      Modal.show({
+        title:'Restore is not available here',
+        sub:'This portal is on the shared office database',
+        body:`<p style="margin:0 0 10px">A restore would replace the live data for
+                <b>everyone</b> — every style, every wholesaler, every order — with whatever is
+                in the file, and there is no undo.</p>
+              <p style="margin:0">Downloading a backup still works and is worth doing often. If you
+                genuinely need to put one back, it has to be done on the database itself, where it
+                can be checked first and rolled back.</p>`,
+        foot:`<button class="btn primary" onclick="Modal.close()">Close</button>`
+      });
+      return;
+    }
     const f = $('#rfile').files && $('#rfile').files[0];
     if(!f){ toast('Choose a backup file first', true); return; }
     const r = new FileReader();
@@ -6668,7 +7102,17 @@ function dl(text, name, mime){
   a.href = u; a.download = name; document.body.appendChild(a); a.click();
   a.remove(); setTimeout(()=>URL.revokeObjectURL(u), 1200);
 }
-const q = s => { s = String(s==null?'':s); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+/* A spreadsheet treats a cell beginning with = + - @ or a tab/return as a
+   formula rather than as text, so a wholesaler saved as "=cmd|..." or a note
+   anyone can type would execute the moment the office opened the export.
+   Genuine numbers stay numeric; anything else that starts dangerously gets a
+   leading apostrophe, which Excel and Sheets both strip on display. */
+const csvSafe = s => {
+  s = String(s==null?'':s);
+  if(/^-?\d+(\.\d+)?$/.test(s.trim())) return s;      // a real number stays a number
+  return /^[=+@\t\r-]/.test(s.replace(/^\s+/, '')) ? "'" + s : s;
+};
+const q = s => { s = csvSafe(s); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
 const toCSV = rows => '﻿' + rows.map(r=>r.map(q).join(',')).join('\r\n');
 
 /* ============================================================================
@@ -6893,15 +7337,15 @@ const Excel = {
     const lines = [['Order','Date','Party code','Party','Status','Style','Name','Shade','Size','Qty','Rate','Value']];
     DB.orders.forEach(o=>o.lines.forEach(l=>lines.push([
       o.id, fmtDate(o.date), o.partyCode, o.partyName, o.status,
-      l.code, l.name, l.colour, l.size, num(l.qty), num(l.rate), num(l.qty)*num(l.rate)])));
+      l.code, l.name, l.colour, l.size, num(l.qty), dec(l.rate), money2(num(l.qty)*dec(l.rate))])));
 
     const heads = [['Order','Date','Party code','Party','Status','Pieces','Value']];
     DB.orders.forEach(o=>heads.push([o.id, fmtDate(o.date), o.partyCode, o.partyName,
-      o.status, num(o.totalQty), num(o.totalValue)]));
+      o.status, num(o.totalQty), dec(o.totalValue)]));
 
     const arts = [['Style','Name','Fabric','Segment','Rate','MOQ','Shades','Sizes',
       'Availability','Order mode','Access','Active']];
-    DB.articles.forEach(a=>arts.push([a.code, a.name, a.fabric, a.segment, num(a.rate), num(a.moq),
+    DB.articles.forEach(a=>arts.push([a.code, a.name, a.fabric, a.segment, dec(a.rate), num(a.moq),
       (a.colours||[]).join(', '), (a.sizes||[]).join(', '),
       isReady(a)?'Ready stock':'Booking', a.orderMode||'loose',
       a.visibility==='exclusive'
@@ -6915,7 +7359,7 @@ const Excel = {
 
     const parties = [['Code','Party','City','State','Discount %','Orders','Active']];
     DB.wholesalers.filter(w=>w.id!=='self').forEach(w=>parties.push([w.code, w.name,
-      w.city||'', w.state||'', num(w.discount),
+      w.city||'', w.state||'', dec(w.discount),
       DB.orders.filter(o=>o.partyId===w.id).length, w.active===false?'No':'Yes']));
 
     const boxes = [['Box type','Note','Pieces per box','Mix']];
@@ -7185,7 +7629,7 @@ const WA = {
     }
     if(o.note){ L.push('*Note*'); L.push('  ' + o.note); L.push(''); }
     L.push(`*Total ${o.totalQty} pcs · ₹${o.totalValue.toLocaleString('en-IN')}*`);
-    if(num(o.discount)) L.push(`(net of ${num(o.discount)}% party discount)`);
+    if(dec(o.discount)) L.push(`(net of ${dec(o.discount)}% party discount)`);
     if(o.edited) L.push('_(order adjusted by the office)_');
 
     const to = (SESSION.role==='admin' && w && w.phone) ? w.phone : (DB.settings.waNumber||'');
@@ -7239,8 +7683,23 @@ function applyLogo(){
   // "no logo" — otherwise a removed logo would linger on this device forever
   if(DB && DB.settings) cacheLogo(live || '');
   const src = live || (DB && DB.settings ? '' : cachedLogo());
+  /* The logo comes out of the settings table, which is writable data. Dropping
+     it into innerHTML inside src="..." meant a value containing a quote could
+     close the attribute and add a tag of its own — script running on this
+     origin, where the sign-in tokens live. It is built as a real element now
+     and the address is set as a property, never parsed as markup, and only
+     when it is an image we recognise. */
+  const ok = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(String(src||''));
   $$('[data-logo]').forEach(el=>{
-    el.innerHTML = src ? `<img src="${src}" alt="CKL logo">` : LOGO_SVG;
+    el.textContent = '';
+    if(ok){
+      const img = document.createElement('img');
+      img.alt = 'CKL logo';
+      img.src = src;                       // a property, not markup
+      el.appendChild(img);
+    } else {
+      el.innerHTML = LOGO_SVG;             // our own constant, not stored data
+    }
   });
 }
 
@@ -7524,12 +7983,17 @@ const Guard = {
     window.addEventListener('focus', show);
     document.addEventListener('visibilitychange', ()=> document.hidden ? hide() : show());
     veil && veil.addEventListener('click', show);
-    // PrintScreen on Windows: the capture still happens, but the clipboard copy
-    // is overwritten and the attempt is called out
+    /* PrintScreen on Windows. The capture happens regardless — no web page can
+       stop or detect an operating-system screenshot, and pretending otherwise
+       is worse than useless. This said screenshots were "watermarked and
+       logged"; the watermark is real, the logging never existed, and a claim
+       that does not hold is not a deterrent, it is a lie told to a colleague.
+       The page carries the signed-in ID across it, so a photographed screen can
+       be traced back. That is all this does, and now all it says. */
     document.addEventListener('keyup', e=>{
       if(!SESSION || e.key !== 'PrintScreen') return;
-      try{ navigator.clipboard.writeText('CKL portal — screenshots are watermarked and logged.'); }catch(err){}
-      toast('Screenshots of this portal carry your login ID', true);
+      try{ navigator.clipboard.writeText('CKL wholesale portal — confidential. This screen carries the ID of whoever was signed in.'); }catch(err){}
+      toast('This screen carries your login ID across it', true);
     });
   }
 };
@@ -7620,4 +8084,12 @@ if(STANDALONE){
   }catch(e){ SESSION = null; }
   if(SESSION) Auth.enter(); else Auth.land();
 })();
+
+/* Closing the tab, switching apps on a phone, or the browser discarding the
+   page all happen without warning. Whatever quantity was typed in the last
+   half-second is written out before the page goes. */
+addEventListener('pagehide', ()=>Cart.flushDraft());
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) Cart.flushDraft(); });
 </script>
+</body>
+</html>

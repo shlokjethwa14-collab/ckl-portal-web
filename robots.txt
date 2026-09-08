@@ -1,0 +1,5 @@
+# CKL wholesale portal — a private trade system, not a public website.
+# Nothing here is meant to appear in a search result. This is a request that
+# well-behaved crawlers honour; it is not access control. The sign-in is.
+User-agent: *
+Disallow: /
