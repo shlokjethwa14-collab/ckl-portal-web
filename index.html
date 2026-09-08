@@ -33,6 +33,7 @@
      Brightening one breaks the other. They are the same colour in the light
      theme, where a single red clears both bars. */
   --red-fill:#C8102E;
+  --ok-ink:#0b6b3a;              /* "Saved" is 9px text, so it needs the same 4.5:1 as body copy */
 
   --glass:rgba(255,255,255,.62);
   --glass-2:rgba(255,255,255,.44);
@@ -382,7 +383,7 @@ table.mx td.lbl{font-size:11.5px; color:var(--ink-2); white-space:nowrap; paddin
   color:var(--faint); margin-left:7px}
 .csave::before{content:''; display:inline-block; width:5px; height:5px; border-radius:50%;
   background:currentColor; margin-right:5px; vertical-align:1px}
-.csave[data-s="saved"]{color:#12a05e}
+.csave[data-s="saved"]{color:var(--ok-ink)}
 .csave[data-s="failed"]{color:var(--red)}
 
 /* ---- preview banner: unmistakable, because you are wearing someone else's
@@ -786,6 +787,7 @@ nav.tabs{position:static; top:auto}
   --line:rgba(150,160,190,.16); --line-2:rgba(150,160,190,.10);
   --red:#ff4d63; --red-ink:#ff8496; --red-wash:rgba(255,77,99,.14); --red-line:rgba(255,77,99,.38);
   --red-fill:#e02b45;              /* white text on this clears AA (4.56:1) */
+  --ok-ink:#57dfa0;
   /* Dark neumorphism is a narrower problem than light: the surface has to sit
      far enough above pure black that the shade side still has somewhere to go,
      while the light side stays a whisper — anything brighter reads as a glow
@@ -1038,6 +1040,11 @@ nav.tabs{position:static; top:auto}
 .lb-bar span{background:rgba(0,0,0,.55); color:#fff; font-size:12px; padding:6px 13px;
   border-radius:999px; max-width:70vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .lb-count{font-family:var(--f-mono)}
+.lb-none{display:grid; gap:8px; place-items:center; text-align:center; padding:30px 34px;
+  max-width:min(420px,86vw); border-radius:16px; background:rgba(255,255,255,.07);
+  color:rgba(255,255,255,.92)}
+.lb-none b{font-size:16px}
+.lb-none span{font-size:13px; color:rgba(255,255,255,.6); line-height:1.5}
 .lb-hint{position:absolute; top:calc(20px + env(safe-area-inset-top,0px)); left:50%;
   transform:translateX(-50%); color:rgba(255,255,255,.5); font-size:11px; z-index:1; pointer-events:none}
 
@@ -1125,7 +1132,7 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
   background:rgba(120,130,155,.12); display:grid; place-items:center}
 .rowpic img{width:100%; height:100%; object-fit:cover; display:block}
 .rowpic.has{cursor:zoom-in}
-.rowpic span{font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);
+.rowpic span{font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2);
   font-weight:700}
 @media (max-width:760px){
   table.data.stacks td[data-l="Photo"]{padding-bottom:9px}
@@ -1313,7 +1320,7 @@ const LS_KEY  = 'ckl_portal_v1';
    could sit unseen for hours - long enough to report a fixed bug as still
    broken. version.txt is fetched past every cache and compared with the stamp
    built into this copy; when they differ, a bar offers a reload. */
-const APP_VERSION = '2026-08-29-09';
+const APP_VERSION = '2026-09-08-01';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -3535,7 +3542,11 @@ async function hydrateCard(a, prefix){
   // a frame that is going to get a photo shows a skeleton, not an empty box —
   // otherwise the grid visibly jumps as each image lands
   const pre = $(id); if(pre) pre.classList.add('ph-load');
-  const u = await Media.url(keys[0]);
+  /* Walk the list until one actually loads. The cover can be a photo uploaded
+     on a computer that never shared it; falling back to the next one shows the
+     product instead of an empty frame just because the first entry is dead. */
+  let u = null;
+  for(const k of keys){ u = await Media.url(k); if(u) break; }
   const ph = $(id);
   if(!ph) return;
   ph.classList.remove('ph-load');
@@ -3593,7 +3604,20 @@ const Lightbox = {
     L.i = ((i % L.keys.length) + L.keys.length) % L.keys.length;
     L.scale = 1; L.tx = 0; L.ty = 0; L.apply(true);
     const u = await Media.url(L.keys[L.i]);
-    const img = $('#lbImg'); if(img && u) img.src = u;
+    const img = $('#lbImg'), stage = $('#lbStage');
+    if(img){
+      if(u){ img.src = u; img.hidden = false; }
+      // an <img> with no src renders as a broken-file icon, which reads as a
+      // fault in the viewer rather than a photo that was never shared
+      else {
+        img.hidden = true;
+        if(stage && !stage.querySelector('.lb-none'))
+          stage.insertAdjacentHTML('beforeend',
+            `<div class="lb-none"><b>Photo not available</b>
+               <span>It was uploaded on another computer and never shared.
+                 The office can add it again from Articles.</span></div>`);
+      }
+    }
     const c = $('#lbCount'); if(c) c.textContent = (L.i+1) + ' / ' + L.keys.length;
   },
   step(d){ Lightbox.show(Lightbox.i + d); },
@@ -5470,8 +5494,8 @@ const BulkPix = {
       try{
         const blob = await resizePhoto(file, 900);
         const key = uid('ph');
-        await Media.put(key, blob);
-        await Media.push(key, blob);          // straight into the shared database
+        await Media.push(key, blob);          // shared copy first, always
+        await Media.put(key, blob);           // then this device's cache
         art.photoIds = [key].concat(art.photoIds || []);   // newest becomes the cover
         await Cloud.saveArticle(art);
         done++;
@@ -5805,21 +5829,27 @@ const ArtForm = {
       if(CLOUD) try{ await Cloud.rest('settings?key=eq.'+encodeURIComponent(Media.ROW(k)),
         {method:'DELETE'}); }catch(e){}
     }
+    /* A photo is attached to the style ONLY once the shared copy is stored.
+       Recording the id first and pushing after is what stranded photos before:
+       the upload failed, the id was written anyway, and from then on every
+       other computer asked for bytes that existed on one laptop alone. */
     let photoFail = '';
     for(const g of ArtForm.gallery){
       if(g.key){ rec.photoIds.push(g.key); continue; }
       const key = uid('ph');
-      await Media.put(key, g.blob);
-      try{ await Media.push(key, g.blob); }
-      catch(e){ photoFail = e.message; }        // reported, never silent
-      rec.photoIds.push(key);
+      try{
+        await Media.push(key, g.blob);          // shared copy first
+        await Media.put(key, g.blob);           // then the local cache
+        rec.photoIds.push(key);                 // only now is it this style's
+      }catch(e){ photoFail = e.message; }
     }
 
     if(id) Object.assign(article(id), rec); else DB.articles.push(rec);
     Store.save(); Sync.push('upsertArticle', {article:rec});
     ArtForm.gallery = []; ArtForm.removed = [];
     Modal.close(); Nav.refresh();
-    if(photoFail) toast('Article saved, but the photo did not upload: ' + photoFail, true);
+    if(photoFail) toast('Article saved WITHOUT the new photo — it could not be uploaded: '
+      + photoFail + '. Try again when the connection is back.', true);
     else if(Cloud._noSizeRates && Object.keys(rec.sizeRates||{}).length)
       toast('Saved — but size-wise rates need db/SIZE-PRICES.sql run once before they take effect', true);
     else toast('Article saved');
