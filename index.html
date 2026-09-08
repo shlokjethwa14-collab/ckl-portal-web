@@ -1152,6 +1152,8 @@ table.qgrid td.qtot.on{color:var(--ink); font-weight:700}
   background:rgba(12,13,16,.55); color:#fff; font-size:13px; line-height:1; cursor:pointer; z-index:1}
 .pbtn:hover{background:rgba(12,13,16,.8)}
 .pbtn.star{right:auto; left:5px}
+.pthumb.pending{outline:2px dashed var(--red-line); outline-offset:-2px}
+.ptag.pnew{left:5px; top:auto; bottom:5px; background:var(--ink); font-size:8px}
 .ptag{position:absolute; left:5px; top:5px; background:var(--red-fill); color:#fff; font-size:8.5px;
   font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:999px}
 .photo-drop.small{aspect-ratio:auto; padding:12px}
@@ -1331,7 +1333,7 @@ const LS_KEY  = 'ckl_portal_v1';
    could sit unseen for hours - long enough to report a fixed bug as still
    broken. version.txt is fetched past every cache and compared with the stamp
    built into this copy; when they differ, a bar offers a reload. */
-const APP_VERSION = '2026-09-08-02';
+const APP_VERSION = '2026-09-08-03';
 const IDB_NAME = 'ckl_media';
 const IDB_STORE = 'photos';
 
@@ -5577,6 +5579,8 @@ const ArtForm = {
         <div class="photo-col">
           <div class="eyebrow" style="margin-bottom:7px">Photos</div>
           <div class="pgal" id="pgal"></div>
+          <div class="warnbox" id="pgalwarn" hidden style="margin:0 0 8px; font-size:11.5px">
+            Press <b>Save article</b> or these photos are lost.</div>
           <div class="photo-drop small" onclick="document.getElementById('pfile').click()">
             <div class="hint">Add photos — shown whole, never cropped.<br>Resized to 1600&nbsp;px.</div>
           </div>
@@ -5672,6 +5676,25 @@ const ArtForm = {
     });
     ArtForm.modeChange(); ArtForm.visChange();
     ArtForm.renderRates(a); ArtForm.allBoxSums();
+    // photos picked here exist nowhere else until Save, so closing has to ask
+    Modal.guard = () => {
+      if(!ArtForm.gallery.some(g=>!g.key)) return true;
+      const n = ArtForm.gallery.filter(g=>!g.key).length;
+      // the confirm replaces the form's scrim, and reopening the form rebuilds
+      // the gallery from saved data — so hold the pending picks aside first
+      ArtForm.held = ArtForm.gallery.slice();
+      ArtForm.heldRemoved = ArtForm.removed.slice();
+      Modal.guard = null;
+      Modal.show({
+        title:'Leave without saving?',
+        sub:`${n} photo${n===1?'':'s'} would be lost`,
+        body:`<p style="margin:0">You added ${n} photo${n===1?'':'s'} but have not saved the style
+                yet. Closing now discards ${n===1?'it':'them'} — nothing has been uploaded.</p>`,
+        foot:`<button class="btn" onclick="ArtForm.resume('${id||''}')">Go back</button>
+              <button class="btn danger" onclick="ArtForm.discard()">Discard the photos</button>`
+      });
+      return false;
+    };
     // changing the size list has to rebuild the size-rate boxes underneath it
     if($('#a_sizes')) $('#a_sizes').addEventListener('input', ()=>ArtForm.renderRates(a));
     if($('#a_rate'))  $('#a_rate').addEventListener('input',  ()=>ArtForm.rateSum());
@@ -5794,16 +5817,39 @@ const ArtForm = {
   visChange(){
     $('#a_partywrap').style.display = $('#a_vis').value==='exclusive' ? '' : 'none';
   },
+  /** Back into the form with the pending photos still attached. */
+  resume(id){
+    const held = ArtForm.held || [], heldRm = ArtForm.heldRemoved || [];
+    ArtForm.held = null; ArtForm.heldRemoved = null;
+    Modal.close(true);
+    ArtForm.open(id || undefined);          // rebuilds from saved data...
+    ArtForm.gallery = held;                 // ...then the unsaved picks go back
+    ArtForm.removed = heldRm;
+    ArtForm.renderGal();
+  },
+
+  /** Throw away the pending photos and shut the form for real. */
+  discard(){
+    ArtForm.held = null; ArtForm.heldRemoved = null;
+    ArtForm.gallery.forEach(g=>{ if(!g.key && g.url) URL.revokeObjectURL(g.url); });
+    ArtForm.gallery = []; ArtForm.removed = [];
+    Modal.guard = null;
+    Modal.close(true);
+  },
   renderGal(){
     const box = $('#pgal'); if(!box) return;
     box.innerHTML = ArtForm.gallery.map((g,i)=>`
-      <div class="pthumb">
+      <div class="pthumb${g.key ? '' : ' pending'}">
         ${g.url ? `<img src="${g.url}" alt="">` : '<div class="hint">…</div>'}
         ${i===0 ? '<span class="ptag">Cover</span>'
                 : `<button class="pbtn star" title="Make cover" onclick="ArtForm.gCover(${i})">★</button>`}
         <button class="pbtn" title="Remove" onclick="ArtForm.gDel(${i})">×</button>
+        ${g.key ? '' : '<span class="ptag pnew">Not saved yet</span>'}
       </div>`).join('')
       || '<div class="tiny muted" style="grid-column:1/-1; padding:2px 1px 6px">No photos yet.</div>';
+    // a photo only becomes real on Save; say so while any are still pending
+    const warn = $('#pgalwarn');
+    if(warn) warn.hidden = !ArtForm.gallery.some(g=>!g.key);
   },
   gCover(i){ ArtForm.gallery.unshift(ArtForm.gallery.splice(i,1)[0]); ArtForm.renderGal(); },
   gDel(i){
@@ -5898,7 +5944,8 @@ const ArtForm = {
     if(id) Object.assign(article(id), rec); else DB.articles.push(rec);
     Store.save(); Sync.push('upsertArticle', {article:rec});
     ArtForm.gallery = []; ArtForm.removed = [];
-    Modal.close(); Nav.refresh();
+    Modal.guard = null;                       // the work is stored; nothing to warn about
+    Modal.close(true); Nav.refresh();
     if(photoFail) toast('Article saved WITHOUT the new photo — it could not be uploaded: '
       + photoFail + '. Try again when the connection is back.', true);
     else if(Cloud._noSizeRates && Object.keys(rec.sizeRates||{}).length)
@@ -7376,7 +7423,17 @@ const Modal = {
     return $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', s)
       .filter(el => !el.disabled && el.offsetParent !== null);
   },
-  close(){
+  /* A dialog may be holding work that only exists in the dialog - photos picked
+     but not yet saved, most of all. Closing used to throw them away without a
+     word, which looks exactly like "I uploaded the photos and they vanished".
+     A guard gets the chance to stop it. */
+  guard:null,
+  close(force){
+    if(!force && typeof Modal.guard === 'function'){
+      const g = Modal.guard;
+      if(g() === false) return;              // the guard is handling it
+    }
+    Modal.guard = null;
     const s = $('#scrim'); if(s) s.remove();
     document.body.style.overflow = '';
     // put the keyboard back where it was, but only if that element still exists
